@@ -29,6 +29,8 @@ log = logging.getLogger(__name__)
 
 WATERMARK = "10 minutes"
 PAID_STATUS = "paid"
+UPSERT_TRIGGER = "30 seconds"
+PAID_COUNTS_TRIGGER = "30 seconds"
 
 
 def read_events(spark: SparkSession, source_dir: str) -> DataFrame:
@@ -138,7 +140,7 @@ def start(
     if available_now:
         writer = writer.trigger(availableNow=True)
     else:
-        writer = writer.trigger(processingTime="30 seconds")
+        writer = writer.trigger(processingTime=UPSERT_TRIGGER)
     return writer.start()
 
 
@@ -154,8 +156,7 @@ def start_paid_counts(
     if available_now:
         writer = writer.trigger(availableNow=True)
     else:
-        # The counts feed a live dashboard, so it picks up new files quickly.
-        writer = writer.trigger(processingTime="1 second")
+        writer = writer.trigger(processingTime=PAID_COUNTS_TRIGGER)
     return writer.start()
 
 
