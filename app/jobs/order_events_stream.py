@@ -26,8 +26,9 @@ from app.jobs.spark_session import get_spark
 log = logging.getLogger(__name__)
 
 # Dedupe state is retained for this long past the newest event seen.
-WATERMARK = "10 seconds"
+WATERMARK = "10 minutes"
 COUNTS_WINDOW = "1 hour"
+COUNTS_QUERY_NAME = "order_status_counts"
 
 
 def read_events(spark: SparkSession, source_dir: str) -> DataFrame:
@@ -76,8 +77,9 @@ def read_count_events(spark: SparkSession, source_dir: str) -> DataFrame:
     """
     return (
         spark.readStream.schema(ORDER_EVENTS_SCHEMA)
+        .option("maxFilesPerTrigger", 10)
         .json(source_dir)
-        .withWatermark("event_time", "10 minutes")
+        .withWatermark("event_time", WATERMARK)
         .dropDuplicatesWithinWatermark(["event_id"])
     )
 
@@ -89,11 +91,7 @@ def hourly_status_counts(events: DataFrame) -> DataFrame:
     each window, so the counts are cumulative within the window.
     """
     return (
-        events.groupBy(
-            # Processing time is what the dashboard shows.
-            F.window(F.current_timestamp(), COUNTS_WINDOW),
-            "status",
-        )
+        events.groupBy(F.window("event_time", COUNTS_WINDOW), "status")
         .count()
         .select(
             F.col("window.start").alias("window_start"),
@@ -137,7 +135,9 @@ def start_hourly_counts(
     counts = hourly_status_counts(read_count_events(spark, source_dir))
     writer = (
         counts.writeStream.outputMode("update")
-        .option("checkpointLocation", checkpoint)
+        .queryName(COUNTS_QUERY_NAME)
+        # Each query owns its own offsets and state; they cannot share a directory.
+        .option("checkpointLocation", f"{checkpoint}/counts")
         .foreachBatch(lambda df, bid: merge_counts_batch(df, bid, target))
     )
     if available_now:
@@ -151,11 +151,11 @@ def start(
     spark: SparkSession, source_dir: str, target: str, checkpoint: str, available_now: bool = False
 ) -> StreamingQuery:
     events = read_events(spark, source_dir)
-    writer = events.writeStream.option("checkpointLocation", checkpoint).foreachBatch(
+    writer = events.writeStream.option("checkpointLocation", f"{checkpoint}/upsert").foreachBatch(
         lambda df, bid: upsert_batch(df, bid, target)
     )
     if available_now:
-        writer = writer.trigger(once=True)
+        writer = writer.trigger(availableNow=True)
     else:
         writer = writer.trigger(processingTime="30 seconds")
     return writer.start()
@@ -184,8 +184,7 @@ def main(argv: list[str] | None = None) -> None:
         )
     log.info("started: %s", _describe_queries(queries))
     for q in queries:
-        # One-shot runs should not hang CI.
-        q.awaitTermination(timeout=30 if args.once else None)
+        q.awaitTermination()
 
 
 if __name__ == "__main__":
