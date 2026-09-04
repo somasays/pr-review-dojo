@@ -161,9 +161,9 @@ class BatchNotifier:
         """Send every message and return one result per message, in order."""
         if not messages:
             return []
-        futs = [asyncio.ensure_future(self._send_one(m)) for m in messages]
+        tasks = [asyncio.create_task(self._send_one(m)) for m in messages]
         results: list[Message | BaseException] = list(
-            await asyncio.gather(*futs, return_exceptions=True)
+            await asyncio.gather(*tasks, return_exceptions=True)
         )
         for message, result in zip(messages, results, strict=True):
             if isinstance(result, BaseException):
