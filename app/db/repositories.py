@@ -65,6 +65,10 @@ class ProductRepository:
         rows = self.session.scalars(select(Product).where(Product.sku.in_(skus))).all()
         return {p.sku: p for p in rows}
 
+    def tracked_skus(self) -> Sequence[str]:
+        """Every SKU in the catalog, ordered so batches are stable across runs."""
+        return self.session.scalars(select(Product.sku).order_by(Product.sku)).all()
+
     def add(self, product: Product) -> Product:
         self.session.add(product)
         self.session.flush()
