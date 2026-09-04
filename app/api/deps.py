@@ -16,6 +16,7 @@ from app.db.session import get_session_factory
 from app.services.config import Settings, get_settings
 from app.services.notification import InMemorySender, NotificationService
 from app.services.order_service import OrderService
+from app.services.payment import InMemoryGateway
 from app.services.pricing_service import PricingService
 
 
@@ -94,12 +95,13 @@ def get_pagination(
 
 PageParams = Annotated[Pagination, Depends(get_pagination)]
 
-# Process-wide sender so local runs can inspect what would have been emailed.
+# Process-wide sender and gateway so local runs can inspect what would have happened.
 _sender = InMemorySender()
+_gateway = InMemoryGateway()
 
 
 def get_order_service(db: DbSession, settings: AppSettings) -> OrderService:
-    return OrderService(db, PricingService(), NotificationService(_sender, settings))
+    return OrderService(db, PricingService(), NotificationService(_sender, settings), _gateway)
 
 
 Orders = Annotated[OrderService, Depends(get_order_service)]

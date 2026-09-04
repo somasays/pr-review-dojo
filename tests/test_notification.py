@@ -16,3 +16,11 @@ def test_retries_transient_gateway_errors():
     svc = NotificationService(sender, Settings(notify_retries=3))
     svc.order_shipped("a@example.com", 8)
     assert [m.subject for m in sender.sent] == ["Order 8 shipped"]
+
+
+def test_warehouse_digest_lists_every_order():
+    sender = InMemorySender()
+    svc = NotificationService(sender, Settings(notify_retries=2))
+    svc.warehouse_digest([1, 2])
+    assert [m.dedupe_key for m in sender.sent] == ["warehouse-digest:1", "warehouse-digest:2"]
+    assert sender.sent[0].to == "warehouse@example.com"

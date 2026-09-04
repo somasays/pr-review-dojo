@@ -46,6 +46,10 @@ class OrderCreate(BaseModel):
         return items
 
 
+class FulfillRequest(BaseModel):
+    tracking_number: str = Field(min_length=3, max_length=64)
+
+
 class OrderItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
