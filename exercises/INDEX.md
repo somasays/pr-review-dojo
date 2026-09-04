@@ -8,3 +8,4 @@
 | 04 | teach | sqlalchemy | easy | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/8) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/12) | | |
 | 05 | test | fastapi | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/16) | - | | |
 | 09 | test | services | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/18) | - | | |
+| 07 | test | logic | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/23) | - | | |
