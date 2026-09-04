@@ -20,3 +20,4 @@
 | 16 | test | async | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/41) | - | | |
 | 18 | test | migrations | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/44) | - | | |
 | 17 | test | fastapi | hard | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/43) | - | | |
+| 19 | test | logic | hard | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/49) | - | | |
