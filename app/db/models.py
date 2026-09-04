@@ -102,7 +102,7 @@ class Order(Base):
     items: Mapped[list[OrderItem]] = relationship(
         back_populates="order", cascade="all, delete-orphan", lazy="selectin"
     )
-    shipping_address: Mapped[Address | None] = relationship()
+    shipping_address: Mapped[Address | None] = relationship(lazy="selectin")
 
 
 class OrderItem(Base):

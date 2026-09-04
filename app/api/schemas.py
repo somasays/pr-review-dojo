@@ -32,7 +32,7 @@ class AddressCreate(BaseModel):
     line1: str = Field(min_length=1, max_length=200)
     city: str = Field(min_length=1, max_length=120)
     postal_code: str = Field(min_length=1, max_length=16)
-    region: str = "US-CA"
+    region: str = Field(default="US-CA", pattern=r"^[A-Z]{2}(-[A-Z]{2})?$")
 
 
 class AddressOut(BaseModel):

@@ -70,7 +70,13 @@ class AddressRepository:
     def list_for_customer(
         self, customer_id: int, limit: int = 50, offset: int = 0
     ) -> Sequence[Address]:
-        stmt = select(Address).where(Address.customer_id == customer_id).limit(limit).offset(offset)
+        stmt = (
+            select(Address)
+            .where(Address.customer_id == customer_id)
+            .order_by(Address.id)
+            .limit(limit)
+            .offset(offset)
+        )
         return self.session.scalars(stmt).all()
 
     def default_for(self, customer_id: int) -> Address | None:

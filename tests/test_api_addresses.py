@@ -60,4 +60,19 @@ def test_order_rejects_unknown_address(client):
 
 def test_export_addresses_returns_csv(client):
     client.post("/customers/me/addresses", json=_address(), headers=H)
-    assert "Home" in client.get("/customers/me/addresses/export", headers=H).text
+    r = client.get("/customers/me/addresses/export", headers=H)
+    assert r.status_code == 200
+    assert (
+        r.text
+        == "label,line1,city,postal_code,region\nHome,1 Market St,San Francisco,94105,US-CA\n"
+    )
+
+
+def test_export_addresses_with_no_addresses_returns_header_only(client):
+    r = client.get("/customers/me/addresses/export", headers=H)
+    assert r.status_code == 200
+    assert r.text == "label,line1,city,postal_code,region\n\n"
+
+
+def test_export_addresses_requires_authentication(client):
+    assert client.get("/customers/me/addresses/export").status_code == 401
