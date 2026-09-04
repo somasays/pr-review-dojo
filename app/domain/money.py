@@ -79,7 +79,7 @@ class Money:
         return Money(self.amount * pct / Decimal(100), self.currency)
 
     def percent_down(self, pct: Decimal) -> Money:
-        """Return pct percent of this amount, rounded half up to cents."""
+        """Return pct percent of this amount, rounded down to whole cents."""
         exact = self.amount * pct / Decimal(100)
         return Money(exact.quantize(CENTS, rounding=ROUND_DOWN), self.currency)
 

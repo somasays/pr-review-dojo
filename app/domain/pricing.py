@@ -97,7 +97,7 @@ class VolumeTier:
     def __post_init__(self) -> None:
         if self.min_quantity <= 0:
             raise ValueError("tier min_quantity must be positive")
-        if self.percent_off > 100:
+        if not 0 <= self.percent_off <= 100:
             raise ValueError(f"tier percent_off out of range: {self.percent_off}")
 
     @property
@@ -115,7 +115,7 @@ def tier_for(quantity: int) -> VolumeTier | None:
     """The best volume tier for a unit count, or None below the first tier."""
     match: VolumeTier | None = None
     for tier in VOLUME_TIERS:
-        if quantity > tier.min_quantity:
+        if quantity >= tier.min_quantity:
             match = tier
     return match
 
@@ -159,18 +159,12 @@ def best_discount(subtotal: Money, discounts: list[Discount]) -> Discount | None
     return best
 
 
-def quote(
-    lines: list[Line],
-    discounts: list[Discount],
-    region: str,
-    volume_codes: list[str] = [],
-) -> Quote:
+def quote(lines: list[Line], discounts: list[Discount], region: str) -> Quote:
     """Compute a full quote.
 
     A volume tier discount is earned by the total unit count and is taken on
     top of the best discount code. Tax is applied after both. Free orders still
-    produce a valid quote. `volume_codes` collects the tier codes that applied,
-    so a caller pricing several carts can keep its own list.
+    produce a valid quote. The combined discount never exceeds the subtotal.
     """
     if not lines:
         raise ValueError("cannot quote an empty order")
@@ -178,16 +172,16 @@ def quote(
     subtotal = sum_money([ln.subtotal for ln in lines], currency)
     units = sum(ln.quantity for ln in lines)
     tier = tier_for(units)
-    if tier is not None:
-        volume_codes.append(tier.code)
     volume_off = volume_discount(subtotal, units)
     chosen = best_discount(subtotal, discounts)
     code_off = chosen.apply(subtotal) if chosen else Money.zero(currency)
     discount = volume_off + code_off
+    if subtotal < discount:
+        discount = subtotal
     taxable = subtotal - discount
     tax = taxable.percent(tax_rate_for(region))
     total = taxable + tax
-    codes = tuple(volume_codes) + ((chosen.code,) if chosen else ())
+    codes = ((tier.code,) if tier else ()) + ((chosen.code,) if chosen else ())
     return Quote(subtotal=subtotal, discount=discount, tax=tax, total=total, applied_codes=codes)
 
 
@@ -199,19 +193,18 @@ def unit_price_after_discount(line: Line, discount: Money) -> Money:
     return line.unit_price - per_unit[0]
 
 
-def holiday_bonus_active() -> bool:
+def is_holiday_bonus_window(today: date | None = None) -> bool:
     """True during the November and December volume-tier bonus window."""
-    return date.today().month in (11, 12)
+    today = today or date.today()
+    return today.month in (11, 12)
 
 
-def volume_discount_for_season(subtotal: Money, quantity: int, holiday: bool = False) -> Money:
-    """Volume discount, boosted by 2 percent when `holiday` is set.
-
-    Pass `holiday_bonus_active()` at the call site once the storefront wires
-    up the seasonal promotion.
-    """
+def volume_discount_with_holiday_bonus(
+    subtotal: Money, quantity: int, today: date | None = None
+) -> Money:
+    """Volume discount, boosted by 2 percent during the holiday bonus window."""
     off = volume_discount(subtotal, quantity)
-    if holiday:
+    if is_holiday_bonus_window(today):
         off = off + subtotal.percent_down(Decimal("2"))
     if subtotal < off:
         return subtotal
@@ -222,9 +215,4 @@ def volume_receipt_shares(lines: list[Line], volume_off: Money) -> list[Money]:
     """Split the volume discount evenly across lines for the receipt."""
     if not lines:
         return []
-    cents = int(volume_off.amount * 100)
-    base, rem = divmod(cents, len(lines))
-    return [
-        Money(Decimal(base + (1 if i < rem else 0)) / 100, volume_off.currency)
-        for i in range(len(lines))
-    ]
+    return volume_off.allocate(len(lines))

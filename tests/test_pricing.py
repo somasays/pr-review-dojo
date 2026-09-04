@@ -89,6 +89,15 @@ def test_volume_tier_lookup():
     assert tier_for(3) is None
 
 
+def test_volume_tier_boundary_is_inclusive():
+    assert tier_for(9) is None
+    assert tier_for(10) is not None
+    assert tier_for(10).percent_off == Decimal("5")  # type: ignore[union-attr]
+    assert tier_for(49).percent_off == Decimal("5")  # type: ignore[union-attr]
+    assert tier_for(50) is not None
+    assert tier_for(50).percent_off == Decimal("12")  # type: ignore[union-attr]
+
+
 def test_volume_discount_amounts():
     assert volume_discount(Money.of("100.00"), 60).amount == Decimal("12.00")
     assert volume_discount(Money.of("100.00"), 12).amount == Decimal("5.00")
