@@ -77,6 +77,7 @@ async def test_dispatch_handler_does_not_block_the_event_loop(monkeypatch):
     beat = asyncio.create_task(heartbeat())
     await asyncio.sleep(0.05)
     await handler({"limit": 10})
+    await asyncio.sleep(0.05)
     beat.cancel()
 
     gaps = [b - a for a, b in zip(ticks, ticks[1:], strict=False)]
