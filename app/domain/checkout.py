@@ -12,7 +12,14 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
 from app.domain.money import Money
-from app.domain.pricing import Quote
+from app.domain.pricing import Discount, DiscountKind, Line, Quote, quote
+
+LABEL_WIDTH = 10
+MAX_QUANTITY = 999
+
+_ITEM_FIELDS = ("sku", "unit_price", "quantity")
+_DISCOUNT_FIELDS = ("code", "kind", "value")
+_KINDS = {kind.value for kind in DiscountKind}
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +30,78 @@ class Receipt:
     text: str
 
 
+def _to_decimal(value: str, message: str) -> Decimal:
+    try:
+        return Decimal(value.strip())
+    except InvalidOperation:
+        raise ValueError(message) from None
+
+
+def parse_items(raw_items: list[dict[str, str]], currency: str = "USD") -> list[Line]:
+    """Turn the raw cart payload into lines. Raises ValueError on bad input."""
+    lines: list[Line] = []
+    for raw in raw_items:
+        if not all(field in raw for field in _ITEM_FIELDS):
+            raise ValueError("item is missing one of sku, unit_price, quantity")
+        sku = raw["sku"].strip().upper()
+        if not sku:
+            raise ValueError("item is missing a sku")
+        try:
+            quantity = int(raw["quantity"].strip())
+        except ValueError:
+            raise ValueError(f"quantity is not a number for {sku}") from None
+        price = _to_decimal(raw["unit_price"], f"unit price is not a number for {sku}")
+        # Line rejects a non-positive quantity and a negative price for us.
+        line = Line(sku, Money(price, currency), quantity)
+        if quantity > MAX_QUANTITY:
+            raise ValueError(f"quantity too large for {sku}")
+        lines.append(line)
+    return lines
+
+
+def parse_discounts(raw_discounts: list[dict[str, str]], currency: str = "USD") -> list[Discount]:
+    """Turn the raw discount payload into rules. Raises ValueError on bad input."""
+    discounts: list[Discount] = []
+    for raw in raw_discounts:
+        if not all(field in raw for field in _DISCOUNT_FIELDS):
+            raise ValueError("discount is missing one of code, kind, value")
+        code = raw["code"].strip().upper()
+        if not code:
+            raise ValueError("discount is missing a code")
+        kind = raw["kind"].strip().lower()
+        if kind not in _KINDS:
+            raise ValueError(f"unknown discount kind {kind!r}")
+        value = _to_decimal(raw["value"], f"discount value is not a number for {code}")
+        floor = raw.get("min_subtotal", "").strip()
+        minimum = (
+            Money(_to_decimal(floor, f"discount min_subtotal is not a number for {code}"), currency)
+            if floor
+            else None
+        )
+        discounts.append(Discount(code, DiscountKind(kind), value, minimum))
+    return discounts
+
+
+def format_receipt(lines: list[Line], priced: Quote, region: str) -> str:
+    """Render the receipt text for a priced cart."""
+    currency = priced.subtotal.currency
+    out = [f"Cart preview ({region})"]
+    for line in lines:
+        out.append(
+            f"  {line.sku:<{LABEL_WIDTH}} {line.quantity} x "
+            f"{line.unit_price.amount} = {line.subtotal.amount}"
+        )
+    out.append(f"  {'Subtotal':<{LABEL_WIDTH}} {priced.subtotal.amount} {currency}")
+    if priced.applied_codes:
+        out.append(
+            f"  {'Discount':<{LABEL_WIDTH}} -{priced.discount.amount} "
+            f"{currency} ({priced.applied_codes[0]})"
+        )
+    out.append(f"  {'Tax':<{LABEL_WIDTH}} {priced.tax.amount} {currency}")
+    out.append(f"  {'Total':<{LABEL_WIDTH}} {priced.total.amount} {currency}")
+    return "\n".join(out)
+
+
 def compute_order_total(
     raw_items: list[dict[str, str]],
     raw_discounts: list[dict[str, str]],
@@ -30,136 +109,7 @@ def compute_order_total(
     currency: str = "USD",
 ) -> Receipt:
     """Parse a raw cart, price it, and render the receipt."""
-    # stop early when the cart is empty
-    if not raw_items:
-        raise ValueError("cannot quote an empty order")
-    # the parsed rows, one tuple per cart item
-    rows: list[tuple[str, Money, int]] = []
-    # loop over the items
-    for it in raw_items:
-        # an item needs all three fields
-        if "sku" in it and "unit_price" in it and "quantity" in it:
-            # normalize the sku
-            x = it["sku"].strip().upper()
-            if x:
-                # parse the quantity
-                try:
-                    q = int(it["quantity"].strip())
-                except ValueError:
-                    raise ValueError(f"quantity is not a number for {x}") from None
-                # parse the unit price
-                try:
-                    p = Decimal(it["unit_price"].strip())
-                except InvalidOperation:
-                    raise ValueError(f"unit price is not a number for {x}") from None
-                # wrap the price so it is rounded to cents
-                m = Money(p, currency)
-                if q > 0:
-                    if not m.is_negative():
-                        # nobody orders more than 999 of one thing
-                        if q <= 999:
-                            # keep the row
-                            rows.append((x, m, q))
-                        else:
-                            raise ValueError(f"quantity too large for {x}")
-                    else:
-                        raise ValueError(f"negative unit price for {x}")
-                else:
-                    raise ValueError(f"quantity must be positive for {x}")
-            else:
-                raise ValueError("item is missing a sku")
-        else:
-            raise ValueError("item is missing one of sku, unit_price, quantity")
-    # add up the line totals
-    sub = Money.zero(currency)
-    for r in rows:
-        sub = sub + r[1] * r[2]
-    # the discount that takes off the most wins, first listed wins a tie
-    disc = Money.zero(currency)
-    code_used = ""
-    # loop over the discounts
-    for d in raw_discounts:
-        # a discount needs a code, a kind, and a value
-        if "code" in d and "kind" in d and "value" in d:
-            c = d["code"].strip().upper()
-            if c:
-                k = d["kind"].strip().lower()
-                if k in ("percent", "fixed", "threshold"):
-                    # parse the value
-                    try:
-                        v = Decimal(d["value"].strip())
-                    except InvalidOperation:
-                        raise ValueError(f"discount value is not a number for {c}") from None
-                    # work out what this one takes off
-                    if k == "percent":
-                        off = Money(sub.amount * v / Decimal(100), currency)
-                    elif k == "fixed":
-                        off = Money(v, currency)
-                    else:
-                        floor = d.get("min_subtotal", "").strip()
-                        if not floor:
-                            raise ValueError("threshold discount needs min_subtotal")
-                        try:
-                            fv = Decimal(floor)
-                        except InvalidOperation:
-                            raise ValueError(
-                                f"discount min_subtotal is not a number for {c}"
-                            ) from None
-                        if Money(fv, currency) <= sub:
-                            off = Money(sub.amount * v / Decimal(100), currency)
-                        else:
-                            off = Money.zero(currency)
-                    # never take off more than the cart is worth
-                    if sub < off:
-                        off = sub
-                    # keep the best one so far
-                    if disc < off:
-                        disc = off
-                        code_used = c
-                else:
-                    raise ValueError(f"unknown discount kind {k!r}")
-            else:
-                raise ValueError("discount is missing a code")
-        else:
-            raise ValueError("discount is missing one of code, kind, value")
-    # tax is charged on the discounted amount
-    taxable = sub - disc
-    # work out the rate for the region
-    if region == "US-CA":
-        t = Money(taxable.amount * Decimal("7.25") / Decimal(100), currency)
-    elif region == "US-NY":
-        t = Money(taxable.amount * Decimal("4.00") / Decimal(100), currency)
-    elif region == "US-TX":
-        t = Money(taxable.amount * Decimal("6.25") / Decimal(100), currency)
-    elif region == "US-OR":
-        t = Money(taxable.amount * Decimal("0") / Decimal(100), currency)
-    elif region == "GB":
-        t = Money(taxable.amount * Decimal("20") / Decimal(100), currency)
-    elif region == "DE":
-        t = Money(taxable.amount * Decimal("19") / Decimal(100), currency)
-    else:
-        # regions we do not charge tax in
-        t = Money.zero(currency)
-    # add the tax back on
-    tot = taxable + t
-    # build the text the storefront prints
-    tmp = []
-    tmp.append(f"Cart preview ({region})")
-    for r in rows:
-        tmp.append(f"  {r[0]:<10} {r[2]} x {r[1].amount} = {(r[1] * r[2]).amount}")
-    tmp.append(f"  {'Subtotal':<10} {sub.amount} {currency}")
-    if code_used:
-        tmp.append(f"  {'Discount':<10} -{disc.amount} {currency} ({code_used})")
-    tmp.append(f"  {'Tax':<10} {t.amount} {currency}")
-    tmp.append(f"  {'Total':<10} {tot.amount} {currency}")
-    # hand back the quote and the text
-    return Receipt(
-        quote=Quote(
-            subtotal=sub,
-            discount=disc,
-            tax=t,
-            total=tot,
-            applied_codes=(code_used,) if code_used else (),
-        ),
-        text="\n".join(tmp),
-    )
+    lines = parse_items(raw_items, currency)
+    discounts = parse_discounts(raw_discounts, currency)
+    priced = quote(lines, discounts, region)
+    return Receipt(quote=priced, text=format_receipt(lines, priced, region))
