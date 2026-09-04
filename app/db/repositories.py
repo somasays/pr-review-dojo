@@ -79,12 +79,8 @@ class CustomerRepository:
 
         Raises `NotFound` when nothing matches.
         """
-        row = (
-            self.session.query(Customer)
-            .filter(Customer.name.startswith(prefix))
-            .order_by(Customer.id)
-            .first()
-        )
+        stmt = select(Customer).where(Customer.name.startswith(prefix))
+        row = self.session.scalar(stmt.order_by(Customer.id).limit(1))
         if row is None:
             raise NotFound("customer", prefix)
         return row
