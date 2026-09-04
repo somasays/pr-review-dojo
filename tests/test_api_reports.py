@@ -1,0 +1,18 @@
+from conftest import ADMIN_KEY, CUSTOMER_KEY
+
+H = {"X-API-Key": CUSTOMER_KEY}
+A = {"X-API-Key": ADMIN_KEY}
+
+
+def test_reports_are_admin_only(client):
+    assert client.get("/reports/orders/by-status", headers=H).status_code == 403
+
+
+def test_by_status_and_recent_total(client):
+    body = {"idempotency_key": "key-00000001", "items": [{"sku": "WIDGET", "quantity": 1}]}
+    client.post("/orders", json=body, headers=H)
+    r = client.get("/reports/orders/by-status", headers=A)
+    assert r.json() == [{"status": "pending_payment", "count": 1}]
+    t = client.get("/reports/orders/recent-total?days=1", headers=A).json()
+    assert t["orders"] == 1
+    assert t["total"] == "21.44"
