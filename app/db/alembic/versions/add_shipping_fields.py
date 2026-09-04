@@ -21,15 +21,6 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column("tracking_number", sa.String(64), nullable=False, server_default="")
         )
-    # The model already defaults tracking_number to the empty string, so drop
-    # the database default and keep one source of truth for it.
-    with op.batch_alter_table("orders") as batch_op:
-        batch_op.alter_column(
-            "tracking_number",
-            existing_type=sa.String(64),
-            existing_nullable=False,
-            server_default=None,
-        )
     # Orders that already left the warehouse never had a shipment time, so
     # take the last status change as the best estimate.
     op.execute(
