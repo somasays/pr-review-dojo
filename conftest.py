@@ -131,8 +131,14 @@ def spark():
 
 @pytest.fixture
 def lake(spark, tmp_path: Path) -> str:
-    from app.jobs.fixtures import write_orders_fixture
+    from app.jobs.fixtures import (
+        write_order_lines_fixture,
+        write_orders_fixture,
+        write_products_fixture,
+    )
 
     root = str(tmp_path / "lake")
     write_orders_fixture(spark, root, days=3)
+    write_order_lines_fixture(spark, root, days=3)
+    write_products_fixture(spark, root)
     return root

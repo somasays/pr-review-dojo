@@ -9,9 +9,18 @@ from decimal import Decimal
 
 from pyspark.sql import SparkSession
 
-from app.jobs.schemas import ORDERS_SCHEMA
+from app.jobs.schemas import ORDER_LINES_SCHEMA, ORDERS_SCHEMA
 
 STATUSES = ["paid", "paid", "shipped", "cancelled", "pending_payment", "delivered"]
+SKUS = ["WIDGET", "GADGET", "GIZMO"]
+PRODUCTS_DDL = (
+    "sku string, name string, category string, unit_price decimal(12,2), effective_date string"
+)
+PRODUCT_ROWS = [
+    ("WIDGET", "Widget", "home_office", Decimal("19.99"), "2026-01-01"),
+    ("GADGET", "Gadget", "electronics", Decimal("120.00"), "2026-01-01"),
+    ("GIZMO", "Gizmo", "electronics", Decimal("0.99"), "2026-01-01"),
+]
 
 
 def orders_rows(days: int = 3, per_day: int = 6, start: datetime | None = None) -> list[tuple]:
@@ -40,6 +49,30 @@ def write_orders_fixture(spark: SparkSession, root: str, days: int = 3) -> str:
     path = f"{root}/orders"
     df = spark.createDataFrame(orders_rows(days=days), ORDERS_SCHEMA)
     df.write.mode("overwrite").partitionBy("dt").parquet(path)
+    return path
+
+
+def order_lines_rows(days: int = 3, per_day: int = 6, start: datetime | None = None) -> list[tuple]:
+    """One line per order, cycling through the catalog."""
+    rows = []
+    for order_id, _customer_id, status, _currency, total, _created_at, dt in orders_rows(
+        days=days, per_day=per_day, start=start
+    ):
+        rows.append((order_id, SKUS[order_id % len(SKUS)], 1 + (order_id % 3), status, total, dt))
+    return rows
+
+
+def write_order_lines_fixture(spark: SparkSession, root: str, days: int = 3) -> str:
+    path = f"{root}/order_lines"
+    df = spark.createDataFrame(order_lines_rows(days=days), ORDER_LINES_SCHEMA)
+    df.write.mode("overwrite").partitionBy("dt").parquet(path)
+    return path
+
+
+def write_products_fixture(spark: SparkSession, root: str, rows: list[tuple] | None = None) -> str:
+    path = f"{root}/products"
+    df = spark.createDataFrame(rows if rows is not None else PRODUCT_ROWS, PRODUCTS_DDL)
+    df.write.mode("overwrite").parquet(path)
     return path
 
 
