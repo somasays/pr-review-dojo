@@ -6,7 +6,8 @@
 # Exit 0 on success. Uses temporary worktrees; the current checkout is untouched.
 set -euo pipefail
 n=$1
-root=$(git rev-parse --show-toplevel)
+# Resolve the primary checkout even when run from a linked worktree, so .venv is found.
+root=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
 py="$root/.venv/bin/python"
 git -C "$root" fetch -q origin "+refs/heads/ex/$n-*:refs/remotes/origin/ex/$n-*" "+refs/heads/solutions/$n:refs/remotes/origin/solutions/$n" 2>/dev/null || true
 ex_ref=$(git -C "$root" for-each-ref --format='%(refname:short)' "refs/heads/ex/$n-*" "refs/remotes/origin/ex/$n-*" | head -1)

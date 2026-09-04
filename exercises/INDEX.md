@@ -12,3 +12,4 @@
 | 08 | teach | async | easy | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/13) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/20) | | |
 | 10 | teach | migrations | easy | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/15) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/22) | | |
 | 06 | teach | spark_batch | easy | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/24) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/27) | | |
+| 11 | test | sqlalchemy | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/30) | - | | |
