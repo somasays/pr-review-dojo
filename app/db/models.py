@@ -6,6 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -37,6 +38,26 @@ class Customer(Base):
     )
 
     orders: Mapped[list[Order]] = relationship(back_populates="customer")
+    addresses: Mapped[list[Address]] = relationship(back_populates="customer")
+
+
+class Address(Base):
+    __tablename__ = "addresses"
+    __table_args__ = (Index("ix_addresses_customer", "customer_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
+    label: Mapped[str] = mapped_column(String(40), nullable=False)
+    line1: Mapped[str] = mapped_column(String(200), nullable=False)
+    city: Mapped[str] = mapped_column(String(120), nullable=False)
+    postal_code: Mapped[str] = mapped_column(String(16), nullable=False)
+    region: Mapped[str] = mapped_column(String(8), nullable=False, default="US-CA")
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    customer: Mapped[Customer] = relationship(back_populates="addresses")
 
 
 class Product(Base):
@@ -67,6 +88,9 @@ class Order(Base):
     tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     discount_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    shipping_address_id: Mapped[int | None] = mapped_column(
+        ForeignKey("addresses.id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -78,6 +102,7 @@ class Order(Base):
     items: Mapped[list[OrderItem]] = relationship(
         back_populates="order", cascade="all, delete-orphan", lazy="selectin"
     )
+    shipping_address: Mapped[Address | None] = relationship()
 
 
 class OrderItem(Base):
