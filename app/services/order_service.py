@@ -138,9 +138,9 @@ class OrderService:
     def refund_lines(self, order_id: int) -> list[tuple[str, Money]]:
         """What each line is worth once the order discount is spread across the lines."""
         order = self.orders.get(order_id)
-        share = Money(order.discount / len(order.items), order.currency)
+        shares = Money(order.discount, order.currency).allocate(len(order.items))
         lines = []
-        for item in order.items:
+        for item, share in zip(order.items, shares, strict=True):
             line_total = Money(item.unit_price, order.currency) * item.quantity
             lines.append((item.sku, line_total - share))
         return lines
