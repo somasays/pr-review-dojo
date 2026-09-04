@@ -156,7 +156,12 @@ class BatchNotifier:
         if not messages:
             return []
         futs = [asyncio.ensure_future(self._send_one(m)) for m in messages]
-        results: list[Message | BaseException] = list(await asyncio.gather(*futs))
+        results: list[Message | BaseException] = list(
+            await asyncio.gather(*futs, return_exceptions=True)
+        )
+        for message, result in zip(messages, results, strict=True):
+            if isinstance(result, BaseException):
+                log.warning("send failed for %s: %r", message.dedupe_key, result)
         log.info(
             "batch of %d done: %d sent, %d skipped",
             len(messages),
