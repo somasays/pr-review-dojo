@@ -1,0 +1,111 @@
+"""Weekly customer summary batch job.
+
+Rolls the daily_customer_orders table up to one row per customer per week and
+attaches the customer's region from the customers dimension. Weeks start on
+Monday, and the week partition key is the Monday formatted as YYYY-MM-DD.
+Rerunning a week overwrites only that week's partition.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+from datetime import date, timedelta
+
+from pyspark.sql import Column, DataFrame, SparkSession
+from pyspark.sql import functions as F
+
+from app.domain.dates import DateRange, parse_dt, to_dt
+from app.jobs.daily_orders import LakePaths
+from app.jobs.schemas import CUSTOMERS_SCHEMA, DAILY_CUSTOMER_SCHEMA
+from app.jobs.spark_session import get_spark
+
+log = logging.getLogger(__name__)
+
+
+def week_start(day: date) -> date:
+    """The Monday on or before day."""
+    return day - timedelta(days=day.weekday())
+
+
+def week_keys(days: DateRange) -> list[str]:
+    """Every week partition key the range touches, in calendar order."""
+    return sorted({to_dt(week_start(d)) for d in days})
+
+
+def week_start_column() -> Column:
+    """The Monday of the week each dt partition key falls in."""
+    return F.date_format(F.date_trunc("week", F.to_date(F.col("dt"), "yyyy-MM-dd")), "yyyy-MM-dd")
+
+
+def read_daily(spark: SparkSession, paths: LakePaths) -> DataFrame:
+    """Read the daily customer aggregate written by the daily_orders job."""
+    return (
+        spark.read.schema(DAILY_CUSTOMER_SCHEMA)
+        .option("basePath", paths.daily_customer_orders)
+        .parquet(paths.daily_customer_orders)
+    )
+
+
+def read_customers(spark: SparkSession, paths: LakePaths) -> DataFrame:
+    """Read the customers dimension. One row per customer."""
+    return spark.read.schema(CUSTOMERS_SCHEMA).parquet(f"{paths.root}/customers")
+
+
+def roll_up_weeks(daily: DataFrame, days: DateRange) -> DataFrame:
+    """One row per (customer_id, week_start) for the weeks the range touches."""
+    return (
+        daily.withColumn("week_start", week_start_column())
+        .groupBy("customer_id", "week_start")
+        .agg(
+            F.sum("order_count").cast("int").alias("n_orders"),
+            F.sum("paid_total").cast("decimal(14,2)").alias("total"),
+            F.sum("cancelled_count").cast("int").alias("cancelled_count"),
+        )
+        # Keep the week filter on the aggregate, which is the smaller side.
+        .filter(F.col("week_start").isin(week_keys(days)))
+    )
+
+
+def weekly_summary(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataFrame:
+    """The weekly report: customer weeks with the region from the dimension."""
+    daily = read_daily(spark, paths)
+    customers = read_customers(spark, paths)
+    weekly = roll_up_weeks(daily, days)
+    return weekly.join(customers, "customer_id").select(
+        "customer_id",
+        "region",
+        "n_orders",
+        "total",
+        "cancelled_count",
+        "week_start",
+    )
+
+
+def write_weekly(df: DataFrame, paths: LakePaths) -> None:
+    # Dynamic partition overwrite: only the weeks present in df are replaced.
+    df.repartition("customer_id").write.mode("overwrite").partitionBy("week_start").parquet(
+        f"{paths.root}/weekly_customer_summary"
+    )
+
+
+def run(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataFrame:
+    log.info("summarizing weeks %s", ", ".join(week_keys(days)))
+    weekly = weekly_summary(spark, paths, days)
+    log.info("writing %d customer weeks", weekly.count())
+    write_weekly(weekly, paths)
+    return weekly
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Weekly customer summary")
+    parser.add_argument("--root", required=True)
+    parser.add_argument("--start", required=True, help="YYYY-MM-DD inclusive")
+    parser.add_argument("--end", required=True, help="YYYY-MM-DD inclusive")
+    args = parser.parse_args(argv)
+    days = DateRange(parse_dt(args.start), parse_dt(args.end))
+    run(get_spark("weekly_summary"), LakePaths(args.root), days)
+
+
+if __name__ == "__main__":
+    main()
