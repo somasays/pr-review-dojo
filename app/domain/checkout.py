@@ -23,16 +23,8 @@ class Receipt:
     text: str
 
 
-def compute_order_total(
-    raw_items: list[dict[str, str]],
-    raw_discounts: list[dict[str, str]],
-    region: str,
-    currency: str = "USD",
-) -> Receipt:
-    """Parse a raw cart, price it, and render the receipt."""
-    # stop early when the cart is empty
-    if not raw_items:
-        raise ValueError("cannot quote an empty order")
+def parse_items(raw_items: list[dict[str, str]], currency: str = "USD") -> list[Line]:
+    """Turn the raw cart payload into lines. Raises ValueError on bad input."""
     # the parsed lines, one per cart item
     lines: list[Line] = []
     # loop over the items
@@ -70,6 +62,11 @@ def compute_order_total(
                 raise ValueError("item is missing a sku")
         else:
             raise ValueError("item is missing one of sku, unit_price, quantity")
+    return lines
+
+
+def parse_discounts(raw_discounts: list[dict[str, str]], currency: str = "USD") -> list[Discount]:
+    """Turn the raw discount payload into rules. Raises ValueError on bad input."""
     # the discounts the cart asked for
     discounts: list[Discount] = []
     # loop over the discounts
@@ -102,8 +99,12 @@ def compute_order_total(
                 raise ValueError("discount is missing a code")
         else:
             raise ValueError("discount is missing one of code, kind, value")
-    # subtotal, best discount, tax and total all come from the domain rules
-    priced = quote(lines, discounts, region)
+    return discounts
+
+
+def format_receipt(lines: list[Line], priced: Quote, region: str) -> str:
+    """Render the receipt text for a priced cart."""
+    currency = priced.subtotal.currency
     # build the text the storefront prints
     tmp = []
     tmp.append(f"Cart preview ({region})")
@@ -116,5 +117,21 @@ def compute_order_total(
         )
     tmp.append(f"  {'Tax':<10} {priced.tax.amount} {currency}")
     tmp.append(f"  {'Total':<10} {priced.total.amount} {currency}")
-    # hand back the quote and the text
-    return Receipt(quote=priced, text="\n".join(tmp))
+    return "\n".join(tmp)
+
+
+def compute_order_total(
+    raw_items: list[dict[str, str]],
+    raw_discounts: list[dict[str, str]],
+    region: str,
+    currency: str = "USD",
+) -> Receipt:
+    """Parse a raw cart, price it, and render the receipt."""
+    # stop early when the cart is empty
+    if not raw_items:
+        raise ValueError("cannot quote an empty order")
+    lines = parse_items(raw_items, currency)
+    discounts = parse_discounts(raw_discounts, currency)
+    # subtotal, best discount, tax and total all come from the domain rules
+    priced = quote(lines, discounts, region)
+    return Receipt(quote=priced, text=format_receipt(lines, priced, region))
