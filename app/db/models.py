@@ -46,6 +46,7 @@ class CustomerNameBackfill(Base):
     """Audit row written when a display name is split, so support can undo it."""
 
     __tablename__ = "customer_name_backfill_log"
+    __table_args__ = (Index("ix_customer_name_backfill_log_customer_id", "customer_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
