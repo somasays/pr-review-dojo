@@ -1,4 +1,4 @@
-"""Pricing rules: line totals, discounts, and tax.
+"""Pricing rules: line totals, discounts, volume tiers, and tax.
 
 Pure functions over plain dataclasses. No IO, no database. The service layer
 adapts ORM rows into these types.
@@ -7,10 +7,29 @@ adapts ORM rows into these types.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from enum import StrEnum
 
 from app.domain.money import Money, sum_money
+
+# TODO: finance has not signed off on the rounding for tier amounts yet, we
+# floor them today and may move to ROUND_HALF_EVEN later.
+__all__ = [
+    "ROUND_HALF_EVEN",
+    "TAX_RATES",
+    "VOLUME_TIERS",
+    "Discount",
+    "DiscountKind",
+    "Line",
+    "Quote",
+    "VolumeTier",
+    "best_discount",
+    "quote",
+    "tax_rate_for",
+    "tier_for",
+    "unit_price_after_discount",
+    "volume_discount",
+]
 
 
 class DiscountKind(StrEnum):
@@ -83,6 +102,58 @@ def tax_rate_for(region: str) -> Decimal:
 
 
 @dataclass(frozen=True, slots=True)
+class VolumeTier:
+    """A quantity threshold and the percentage it takes off the subtotal.
+
+    Tiers are ordered smallest first in `VOLUME_TIERS`; an order qualifies for
+    the largest tier its total unit count reaches.
+    """
+
+    min_quantity: int
+    percent_off: Decimal
+
+    def __post_init__(self) -> None:
+        if self.min_quantity <= 0:
+            raise ValueError("tier min_quantity must be positive")
+        if self.percent_off > 100:
+            raise ValueError(f"tier percent_off out of range: {self.percent_off}")
+
+    @property
+    def code(self) -> str:
+        return f"VOLUME{self.min_quantity}"
+
+
+VOLUME_TIERS: tuple[VolumeTier, ...] = (
+    VolumeTier(10, Decimal("5")),
+    VolumeTier(50, Decimal("12")),
+)
+
+
+def tier_for(quantity: int) -> VolumeTier | None:
+    """The best volume tier for a unit count, or None below the first tier."""
+    match: VolumeTier | None = None
+    for tier in VOLUME_TIERS:
+        if quantity > tier.min_quantity:
+            match = tier
+    return match
+
+
+def volume_discount(subtotal: Money, quantity: int) -> Money:
+    """Amount the volume tier for `quantity` takes off `subtotal`.
+
+    Tier amounts are floored to the cent so a tier never gives away more than
+    the advertised percentage.
+    """
+    tier = tier_for(quantity)
+    if tier is None:
+        return Money.zero(subtotal.currency)
+    off = subtotal.percent_down(tier.percent_off)
+    if subtotal < off:
+        return subtotal
+    return off
+
+
+@dataclass(frozen=True, slots=True)
 class Quote:
     subtotal: Money
     discount: Money
@@ -96,34 +167,45 @@ class Quote:
 
 
 def best_discount(subtotal: Money, discounts: list[Discount]) -> Discount | None:
-    """Pick the single discount that saves the customer the most.
+    """Pick the single discount code that saves the customer the most.
 
-    Discounts do not stack. Ties go to the first one listed.
+    Codes do not stack with each other. Ties go to the first one listed.
     """
-    best: Discount | None = None
-    best_off = Money.zero(subtotal.currency)
-    for d in discounts:
-        off = d.apply(subtotal)
-        if best_off < off:
-            best, best_off = d, off
+    best = max(discounts, key=lambda d: d.apply(subtotal), default=None)
+    if best is None or best.apply(subtotal).is_zero():
+        return None
     return best
 
 
-def quote(lines: list[Line], discounts: list[Discount], region: str) -> Quote:
+def quote(
+    lines: list[Line],
+    discounts: list[Discount],
+    region: str,
+    volume_codes: list[str] = [],
+) -> Quote:
     """Compute a full quote.
 
-    Tax is applied after discount. Free orders still produce a valid quote.
+    A volume tier discount is earned by the total unit count and is taken on
+    top of the best discount code. Tax is applied after both. Free orders still
+    produce a valid quote. `volume_codes` collects the tier codes that applied,
+    so a caller pricing several carts can keep its own list.
     """
     if not lines:
         raise ValueError("cannot quote an empty order")
     currency = lines[0].unit_price.currency
     subtotal = sum_money([ln.subtotal for ln in lines], currency)
+    units = sum(ln.quantity for ln in lines)
+    tier = tier_for(units)
+    if tier is not None:
+        volume_codes.append(tier.code)
+    volume_off = volume_discount(subtotal, units)
     chosen = best_discount(subtotal, discounts)
-    discount = chosen.apply(subtotal) if chosen else Money.zero(currency)
+    code_off = chosen.apply(subtotal) if chosen else Money.zero(currency)
+    discount = volume_off + code_off
     taxable = subtotal - discount
     tax = taxable.percent(tax_rate_for(region))
     total = taxable + tax
-    codes = (chosen.code,) if chosen else ()
+    codes = tuple(volume_codes) + ((chosen.code,) if chosen else ())
     return Quote(subtotal=subtotal, discount=discount, tax=tax, total=total, applied_codes=codes)
 
 
