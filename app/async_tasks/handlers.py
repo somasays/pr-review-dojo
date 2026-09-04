@@ -61,7 +61,7 @@ def build_dispatch_handler(notifier: BatchNotifier) -> Any:
     return dispatch_confirmations
 
 
-async def record_metric(payload: dict[str, Any]) -> None:
+def record_metric(payload: dict[str, Any]) -> None:
     """Record one counter sample for the dispatcher summary."""
     metrics.append((str(payload["name"]), int(payload["value"])))
 
