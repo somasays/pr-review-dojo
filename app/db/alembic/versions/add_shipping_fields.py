@@ -41,4 +41,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     with op.batch_alter_table("orders") as batch_op:
         batch_op.drop_column("shipped_at")
-        batch_op.drop_column("currency")
+        batch_op.drop_column("tracking_number")
