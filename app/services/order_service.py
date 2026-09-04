@@ -36,6 +36,22 @@ class CreateOrderCommand:
     discount_codes: list[str]
 
 
+def format_refund_audit_row(
+    order_id: int,
+    email: str,
+    total: Decimal,
+    reason: str | None,
+    lines: list[tuple[str, Money]],
+) -> str:
+    """CSV line for the support refund spreadsheet. Pure: no session, no IO."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([order_id, email, str(total), reason or ""])
+    for sku, amount in lines:
+        writer.writerow([order_id, sku, str(amount)])
+    return buf.getvalue()
+
+
 class OrderService:
     def __init__(
         self,
@@ -138,38 +154,35 @@ class OrderService:
     def refund_lines(self, order_id: int) -> list[tuple[str, Money]]:
         """What each line is worth once the order discount is spread across the lines."""
         order = self.orders.get(order_id)
-        share = Money(order.discount / len(order.items), order.currency)
+        shares = Money(order.discount, order.currency).allocate(len(order.items))
         lines = []
-        for item in order.items:
+        for item, share in zip(order.items, shares, strict=True):
             line_total = Money(item.unit_price, order.currency) * item.quantity
             lines.append((item.sku, line_total - share))
         return lines
 
-    def refund(
-        self, order_id: int, reason: str | None = None, notify_support: bool = True
-    ) -> Order:
+    def refund(self, order_id: int, reason: str | None = None) -> Order:
         """Refund a paid or delivered order, put the stock back, and email the customer."""
         order = self.orders.get(order_id)
         current = OrderStatus(order.status)
-        if current is not OrderStatus.REFUNDED and not is_refundable(current):
+        if current is OrderStatus.REFUNDED:
+            log.info("order %s is already refunded, nothing to do", order_id)
+            return order
+        if not is_refundable(current):
             # Let the state machine raise the descriptive error.
             transition(current, OrderStatus.REFUNDED)
         for item in order.items:
             item.product.stock += item.quantity
-        if current is OrderStatus.REFUNDED:
-            log.info("order %s is already refunded, no second email", order_id)
-            return order
         self._move(order, OrderStatus.REFUNDED)
         breakdown = ", ".join(f"{sku} {amount}" for sku, amount in self.refund_lines(order.id))
         self.notifications.order_refunded(
             order.customer.email,
             order.id,
-            f"{float(order.total):.2f}",
+            str(Money(order.total, order.currency)),
             breakdown,
             reason=reason,
         )
-        if notify_support:
-            self.flag_large_refund(order.id, reason)
+        self.flag_large_refund(order.id, reason)
         return order
 
     def flag_large_refund(self, order_id: int, reason: str | None = None) -> str | None:
@@ -178,11 +191,8 @@ class OrderService:
         order = self.orders.get(order_id)
         if order.total < LARGE_REFUND_THRESHOLD:
             return None
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow([order.id, order.customer.email, str(order.total), reason or ""])
-        for sku, amount in self.refund_lines(order_id):
-            writer.writerow([order.id, sku, str(amount)])
-        row = buf.getvalue()
+        row = format_refund_audit_row(
+            order.id, order.customer.email, order.total, reason, self.refund_lines(order_id)
+        )
         self.notifications.notify_support_of_large_refund(order.id, row)
         return row
