@@ -88,7 +88,7 @@ def weekly_summary(spark: SparkSession, paths: LakePaths, days: DateRange) -> Da
 
 def write_weekly(df: DataFrame, paths: LakePaths) -> None:
     # Dynamic partition overwrite: only the weeks present in df are replaced.
-    df.repartition("customer_id").write.mode("overwrite").partitionBy("week_start").parquet(
+    df.repartition("week_start").write.mode("overwrite").partitionBy("week_start").parquet(
         f"{paths.root}/weekly_customer_summary"
     )
 
