@@ -55,14 +55,10 @@ class CustomerRepository:
 
         Ordered by name so the admin console can show the page alphabetically.
         """
-        stmt = (
-            select(Customer)
-            .where(Customer.name.startswith(prefix))
-            .where(Customer.region.in_(regions))
-            .order_by(Customer.name, Customer.id)
-            .limit(limit)
-            .offset(offset)
-        )
+        stmt = select(Customer).where(Customer.name.startswith(prefix))
+        if regions:
+            stmt = stmt.where(Customer.region.in_(regions))
+        stmt = stmt.order_by(Customer.name, Customer.id).limit(limit).offset(offset)
         return self.session.scalars(stmt).all()
 
     def search_count(self, prefix: str, regions: Sequence[str]) -> int:
