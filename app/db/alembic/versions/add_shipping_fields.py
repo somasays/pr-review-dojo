@@ -17,7 +17,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     with op.batch_alter_table("orders") as batch_op:
-        batch_op.add_column(sa.Column("shipped_at", sa.DateTime(), nullable=True))
+        batch_op.add_column(sa.Column("shipped_at", sa.DateTime(timezone=True), nullable=True))
         batch_op.add_column(
             sa.Column("tracking_number", sa.String(64), nullable=False, server_default="")
         )
