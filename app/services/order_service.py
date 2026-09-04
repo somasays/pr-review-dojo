@@ -151,14 +151,14 @@ class OrderService:
         """Refund a paid or delivered order, put the stock back, and email the customer."""
         order = self.orders.get(order_id)
         current = OrderStatus(order.status)
-        if current is not OrderStatus.REFUNDED and not is_refundable(current):
+        if current is OrderStatus.REFUNDED:
+            log.info("order %s is already refunded, nothing to do", order_id)
+            return order
+        if not is_refundable(current):
             # Let the state machine raise the descriptive error.
             transition(current, OrderStatus.REFUNDED)
         for item in order.items:
             item.product.stock += item.quantity
-        if current is OrderStatus.REFUNDED:
-            log.info("order %s is already refunded, no second email", order_id)
-            return order
         self._move(order, OrderStatus.REFUNDED)
         breakdown = ", ".join(f"{sku} {amount}" for sku, amount in self.refund_lines(order.id))
         self.notifications.order_refunded(
