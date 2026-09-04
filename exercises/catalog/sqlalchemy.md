@@ -46,6 +46,7 @@ Each entry is one plantable defect for a feature PR against `app/db/` and its ca
   ```python
   _session = get_session_factory()()
 
+
   def mark_paid(payload):
       OrderService(_session, PricingService(), notifications).mark_paid(payload["order_id"])
       _session.commit()
