@@ -28,26 +28,6 @@ BACKFILL_DAYS = 7
 PAID_STATUSES = ("paid", "shipped", "delivered")
 
 
-def enrich(
-    spark: SparkSession,
-    paths: LakePaths,
-    start: str,
-    end: str,
-    backfill: bool = False,
-    dry_run: bool = False,
-) -> DataFrame:
-    """Build the enrichment table for a range of days and write it out."""
-    if backfill:
-        days = DateRange.last_n_days(BACKFILL_DAYS)
-    else:
-        days = DateRange(parse_dt(start), parse_dt(end))
-    log.info("enriching orders for %s..%s", days.start, days.end)
-    out = enrich_daily(read_orders(spark, paths, days))
-    if not dry_run:
-        write_enrichment(out, paths)
-    return out
-
-
 def enrich_daily(orders: DataFrame) -> DataFrame:
     """One row per (customer_id, dt)."""
     paid: Column = F.when(F.col("status").isin(*PAID_STATUSES), F.col("total")).otherwise(
@@ -85,6 +65,13 @@ def write_enrichment(df: DataFrame, paths: LakePaths) -> None:
     )
 
 
+def run(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataFrame:
+    log.info("enriching orders for %s..%s", days.start, days.end)
+    enriched = enrich_daily(read_orders(spark, paths, days))
+    write_enrichment(enriched, paths)
+    return enriched
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Customer daily enrichment")
     parser.add_argument("--root", required=True)
@@ -93,14 +80,20 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--backfill", action="store_true", help=f"last {BACKFILL_DAYS} days")
     parser.add_argument("--dry-run", action="store_true", help="compute but do not write")
     args = parser.parse_args(argv)
-    enrich(
-        get_spark("daily_enrichment"),
-        LakePaths(args.root),
-        args.start,
-        args.end,
-        backfill=args.backfill,
-        dry_run=args.dry_run,
+    days = (
+        DateRange.last_n_days(BACKFILL_DAYS)
+        if args.backfill
+        else DateRange(parse_dt(args.start), parse_dt(args.end))
     )
+    spark = get_spark("daily_enrichment")
+    paths = LakePaths(args.root)
+    if args.dry_run:
+        log.info(
+            "dry run: %s rows, nothing written",
+            enrich_daily(read_orders(spark, paths, days)).count(),
+        )
+        return
+    run(spark, paths, days)
 
 
 if __name__ == "__main__":
