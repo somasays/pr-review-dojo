@@ -8,6 +8,7 @@ script can print a summary when it finishes.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -35,17 +36,22 @@ GATEWAY_HEALTH_KIND = "check_gateway_health"
 metrics: list[tuple[str, int]] = []
 
 
+def _load_pending_messages(limit: int) -> list[Message]:
+    """Read the pending confirmations. Sync: it uses a blocking session."""
+    with session_scope() as db:
+        orders = OrderRepository(db).list_by_status(OrderStatus.PAID, limit=limit)
+        return [
+            confirmation_message(order.customer.email, order.id, str(order.total))
+            for order in orders
+        ]
+
+
 def build_dispatch_handler(notifier: BatchNotifier) -> Any:
     """Return the handler that drains one batch of pending confirmations."""
 
     async def dispatch_confirmations(payload: dict[str, Any]) -> None:
         limit = int(payload.get("limit", BATCH_LIMIT))
-        with session_scope() as db:
-            orders = OrderRepository(db).list_by_status(OrderStatus.PAID, limit=limit)
-            messages: list[Message] = [
-                confirmation_message(order.customer.email, order.id, str(order.total))
-                for order in orders
-            ]
+        messages = await asyncio.to_thread(_load_pending_messages, limit)
         if not messages:
             log.info("no confirmations pending")
             return
