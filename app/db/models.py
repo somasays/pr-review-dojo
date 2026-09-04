@@ -27,6 +27,7 @@ class Base(DeclarativeBase):
 
 class Customer(Base):
     __tablename__ = "customers"
+    __table_args__ = (Index("ix_customers_region_name", "region", "name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
