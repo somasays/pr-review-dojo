@@ -21,12 +21,6 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column("tracking_number", sa.String(64), nullable=False, server_default="")
         )
-    # Orders that already left the warehouse never had a shipment time, so
-    # take the last status change as the best estimate.
-    op.execute(
-        "UPDATE orders SET shipped_at = updated_at "
-        "WHERE status IN ('shipped', 'delivered')"
-    )
 
 
 def downgrade() -> None:
