@@ -36,7 +36,7 @@ class RateLimiter:
         self._lock = threading.Lock()
         self._hits: dict[str, int] = {}
         self._window_start: dict[str, float] = {}
-        self._stopped = False
+        self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def hit(self, key: str) -> Decision:
@@ -86,11 +86,10 @@ class RateLimiter:
         self._thread.start()
 
     def stop(self) -> None:
-        self._stopped = True
+        self._stop.set()
 
     def _run(self) -> None:
-        while not self._stopped:
-            time.sleep(self.policy.window_seconds)
+        while not self._stop.wait(self.policy.window_seconds):
             self.sweep()
 
 
