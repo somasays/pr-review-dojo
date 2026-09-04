@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
 from app.domain.money import Money
-from app.domain.pricing import Quote
+from app.domain.pricing import Discount, DiscountKind, Line, Quote, quote
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,8 +33,8 @@ def compute_order_total(
     # stop early when the cart is empty
     if not raw_items:
         raise ValueError("cannot quote an empty order")
-    # the parsed rows, one tuple per cart item
-    rows: list[tuple[str, Money, int]] = []
+    # the parsed lines, one per cart item
+    lines: list[Line] = []
     # loop over the items
     for it in raw_items:
         # an item needs all three fields
@@ -58,8 +58,8 @@ def compute_order_total(
                     if not m.is_negative():
                         # nobody orders more than 999 of one thing
                         if q <= 999:
-                            # keep the row
-                            rows.append((x, m, q))
+                            # keep the line
+                            lines.append(Line(x, m, q))
                         else:
                             raise ValueError(f"quantity too large for {x}")
                     else:
@@ -70,13 +70,8 @@ def compute_order_total(
                 raise ValueError("item is missing a sku")
         else:
             raise ValueError("item is missing one of sku, unit_price, quantity")
-    # add up the line totals
-    sub = Money.zero(currency)
-    for r in rows:
-        sub = sub + r[1] * r[2]
-    # the discount that takes off the most wins, first listed wins a tie
-    disc = Money.zero(currency)
-    code_used = ""
+    # the discounts the cart asked for
+    discounts: list[Discount] = []
     # loop over the discounts
     for d in raw_discounts:
         # a discount needs a code, a kind, and a value
@@ -90,76 +85,36 @@ def compute_order_total(
                         v = Decimal(d["value"].strip())
                     except InvalidOperation:
                         raise ValueError(f"discount value is not a number for {c}") from None
-                    # work out what this one takes off
-                    if k == "percent":
-                        off = Money(sub.amount * v / Decimal(100), currency)
-                    elif k == "fixed":
-                        off = Money(v, currency)
-                    else:
-                        floor = d.get("min_subtotal", "").strip()
-                        if not floor:
-                            raise ValueError("threshold discount needs min_subtotal")
+                    floor = d.get("min_subtotal", "").strip()
+                    if floor:
                         try:
                             fv = Decimal(floor)
                         except InvalidOperation:
                             raise ValueError(
                                 f"discount min_subtotal is not a number for {c}"
                             ) from None
-                        if Money(fv, currency) <= sub:
-                            off = Money(sub.amount * v / Decimal(100), currency)
-                        else:
-                            off = Money.zero(currency)
-                    # never take off more than the cart is worth
-                    if sub < off:
-                        off = sub
-                    # keep the best one so far
-                    if disc < off:
-                        disc = off
-                        code_used = c
+                        discounts.append(Discount(c, DiscountKind(k), v, Money(fv, currency)))
+                    else:
+                        discounts.append(Discount(c, DiscountKind(k), v))
                 else:
                     raise ValueError(f"unknown discount kind {k!r}")
             else:
                 raise ValueError("discount is missing a code")
         else:
             raise ValueError("discount is missing one of code, kind, value")
-    # tax is charged on the discounted amount
-    taxable = sub - disc
-    # work out the rate for the region
-    if region == "US-CA":
-        t = Money(taxable.amount * Decimal("7.25") / Decimal(100), currency)
-    elif region == "US-NY":
-        t = Money(taxable.amount * Decimal("4.00") / Decimal(100), currency)
-    elif region == "US-TX":
-        t = Money(taxable.amount * Decimal("6.25") / Decimal(100), currency)
-    elif region == "US-OR":
-        t = Money(taxable.amount * Decimal("0") / Decimal(100), currency)
-    elif region == "GB":
-        t = Money(taxable.amount * Decimal("20") / Decimal(100), currency)
-    elif region == "DE":
-        t = Money(taxable.amount * Decimal("19") / Decimal(100), currency)
-    else:
-        # regions we do not charge tax in
-        t = Money.zero(currency)
-    # add the tax back on
-    tot = taxable + t
+    # subtotal, best discount, tax and total all come from the domain rules
+    priced = quote(lines, discounts, region)
     # build the text the storefront prints
     tmp = []
     tmp.append(f"Cart preview ({region})")
-    for r in rows:
-        tmp.append(f"  {r[0]:<10} {r[2]} x {r[1].amount} = {(r[1] * r[2]).amount}")
-    tmp.append(f"  {'Subtotal':<10} {sub.amount} {currency}")
-    if code_used:
-        tmp.append(f"  {'Discount':<10} -{disc.amount} {currency} ({code_used})")
-    tmp.append(f"  {'Tax':<10} {t.amount} {currency}")
-    tmp.append(f"  {'Total':<10} {tot.amount} {currency}")
+    for ln in lines:
+        tmp.append(f"  {ln.sku:<10} {ln.quantity} x {ln.unit_price.amount} = {ln.subtotal.amount}")
+    tmp.append(f"  {'Subtotal':<10} {priced.subtotal.amount} {currency}")
+    if priced.applied_codes:
+        tmp.append(
+            f"  {'Discount':<10} -{priced.discount.amount} {currency} ({priced.applied_codes[0]})"
+        )
+    tmp.append(f"  {'Tax':<10} {priced.tax.amount} {currency}")
+    tmp.append(f"  {'Total':<10} {priced.total.amount} {currency}")
     # hand back the quote and the text
-    return Receipt(
-        quote=Quote(
-            subtotal=sub,
-            discount=disc,
-            tax=t,
-            total=tot,
-            applied_codes=(code_used,) if code_used else (),
-        ),
-        text="\n".join(tmp),
-    )
+    return Receipt(quote=priced, text="\n".join(tmp))
