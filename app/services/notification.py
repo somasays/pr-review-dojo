@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from app.services.config import Settings, get_settings
-from app.services.retry import RetryPolicy, retry
+from app.services.retry import RetryExhausted, RetryPolicy, retry
 
 log = logging.getLogger(__name__)
 
@@ -59,8 +59,8 @@ class NotificationService:
         log.info("sending %s to %s (key=%s)", message.subject, message.to, message.dedupe_key)
         try:
             retry(lambda: self.sender.send(message), self.policy, sleep=lambda _s: None)
-        except Exception:
-            raise NotificationError(f"could not send {message.subject}")
+        except RetryExhausted as exc:
+            raise NotificationError(f"could not send {message.subject}") from exc
 
     def order_confirmed(self, email: str, order_id: int, total: str) -> None:
         self._deliver(
