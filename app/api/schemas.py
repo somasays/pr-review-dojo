@@ -23,6 +23,8 @@ class CustomerOut(BaseModel):
     id: int
     email: EmailStr
     name: str
+    first_name: str
+    last_name: str
     region: str
     created_at: datetime
 
