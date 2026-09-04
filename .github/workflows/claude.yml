@@ -1,0 +1,53 @@
+name: claude
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          trigger_phrase: "@claude"
+          prompt: |
+            Read CLAUDE.md first; its rubrics and rules are binding. The exercise number N is the
+            two-digit number in the PR head branch (ex/N-slug or fix/N). Then:
+            - If the triggering comment says "@claude grade", run every step of .claude/commands/grade.md for N.
+            - If it says "@claude fix-grade", run every step of .claude/commands/fix-grade.md for N.
+            - Otherwise answer the comment about the codebase in general, following CLAUDE.md rule 4.
+            Run tests with `uv run pytest`; the repo .venv is already synced. Use `uv run` for ruff and mypy.
+            Post results as PR comments exactly as the command files specify.
+          claude_args: |
+            --max-turns 40
+            --allowedTools "Bash(pytest*),Bash(uv run pytest*),Bash(uv run ruff*),Bash(uv run mypy*),Bash(git diff*),Bash(git checkout*),Bash(git fetch*),Bash(git worktree*),Bash(git add*),Bash(git commit*),Bash(git push*),Bash(gh*),Bash(scripts/pr_comment.sh*),Bash(cp*),Bash(mktemp*),Read,Edit,Write,Grep,Glob"
