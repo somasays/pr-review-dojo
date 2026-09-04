@@ -18,3 +18,4 @@
 | 12 | teach | rewrite:domain | rewrite | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/28) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/38) | | |
 | 13 | teach | spark_streaming | easy | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/34) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/40) | | |
 | 16 | test | async | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/41) | - | | |
+| 18 | test | migrations | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/44) | - | | |
