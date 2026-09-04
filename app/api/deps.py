@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterator
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, Query, status
+from fastapi import Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.db.models import Customer
@@ -17,6 +18,7 @@ from app.services.config import Settings, get_settings
 from app.services.notification import InMemorySender, NotificationService
 from app.services.order_service import OrderService
 from app.services.pricing_service import PricingService
+from app.services.rate_limiter import RateLimiter, RateLimitPolicy
 
 
 def get_db() -> Iterator[Session]:
@@ -103,3 +105,41 @@ def get_order_service(db: DbSession, settings: AppSettings) -> OrderService:
 
 
 Orders = Annotated[OrderService, Depends(get_order_service)]
+
+_rate_limiter: RateLimiter | None = None
+
+
+@lru_cache(maxsize=1)
+def rate_limit_policy() -> RateLimitPolicy:
+    settings = get_settings()
+    return RateLimitPolicy(
+        limit=settings.rate_limit_per_minute,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
+
+
+def get_rate_limiter() -> RateLimiter:
+    """Build the limiter on first use so importing the app spawns no threads."""
+    global _rate_limiter
+    if _rate_limiter is None:
+        _rate_limiter = RateLimiter(rate_limit_policy())
+        _rate_limiter.start()
+    return _rate_limiter
+
+
+def rate_limit(
+    _principal: CurrentPrincipal,
+    response: Response,
+    x_api_key: Annotated[str, Header()] = "",
+) -> None:
+    """Cap each API key at `RATE_LIMIT_PER_MINUTE` writes per window."""
+    limiter = get_rate_limiter()
+    decision = limiter.hit(hash_api_key(x_api_key))
+    response.headers["X-RateLimit-Limit"] = str(limiter.policy.limit)
+    response.headers["X-RateLimit-Remaining"] = str(decision.remaining)
+    if not decision.allowed:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "rate limit exceeded",
+            headers={"Retry-After": str(decision.retry_after)},
+        )

@@ -85,3 +85,5 @@ All settings are read once from the environment by `app.services.config`.
 | `WORKER_CONCURRENCY` | `4` | async worker bound |
 | `DATA_LAKE_ROOT` | `./data` | parquet root |
 | `PAGE_SIZE_MAX` | `200` | list endpoint cap |
+| `RATE_LIMIT_PER_MINUTE` | `100` | writes allowed per API key per window |
+| `RATE_LIMIT_WINDOW_SECONDS` | `60` | length of the rate limit window |
