@@ -164,7 +164,7 @@ class OrderService:
         self.notifications.order_refunded(
             order.customer.email,
             order.id,
-            f"{float(order.total):.2f}",
+            str(Money(order.total, order.currency)),
             breakdown,
             reason=reason,
         )
