@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import Customer, Order, OrderItem, Product
@@ -42,6 +42,48 @@ class CustomerRepository:
     def list(self, limit: int = 50, offset: int = 0) -> Sequence[Customer]:
         stmt = select(Customer).order_by(Customer.id).limit(limit).offset(offset)
         return self.session.scalars(stmt).all()
+
+    def search(
+        self,
+        prefix: str,
+        regions: Sequence[str],
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[Customer]:
+        """One page of customers whose name starts with `prefix`, within `regions`.
+
+        Ordered by name so the admin console can show the page alphabetically.
+        """
+        stmt = (
+            select(Customer)
+            .where(Customer.name.startswith(prefix))
+            .where(Customer.region.in_(regions))
+            .order_by(Customer.name)
+            .limit(limit)
+            .offset(offset)
+        )
+        return self.session.scalars(stmt).all()
+
+    def search_count(self, prefix: str, regions: Sequence[str]) -> int:
+        """How many customers `search` would match if it were not paginated."""
+        sql = "SELECT COUNT(*) FROM customers WHERE name LIKE :pattern"
+        if regions:
+            values = ", ".join(f"'{r}'" for r in regions)
+            sql += f" AND region IN ({values})"
+        total = self.session.execute(text(sql), {"pattern": f"{prefix}%"}).scalar_one()
+        return int(total)
+
+    def first_match(self, prefix: str) -> Customer:
+        """Return the lowest-id customer whose name starts with `prefix`, or None."""
+        row = (
+            self.session.query(Customer)
+            .filter(Customer.name.startswith(prefix))
+            .order_by(Customer.id)
+            .first()
+        )
+        if row is None:
+            raise NotFound("customer", prefix)
+        return row
 
     def add(self, customer: Customer) -> Customer:
         self.session.add(customer)

@@ -10,11 +10,13 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+REGION_PATTERN = r"^[A-Z]{2}(-[A-Z]{2})?$"
+
 
 class CustomerCreate(BaseModel):
     email: EmailStr
     name: str = Field(min_length=1, max_length=120)
-    region: str = Field(default="US-CA", pattern=r"^[A-Z]{2}(-[A-Z]{2})?$")
+    region: str = Field(default="US-CA", pattern=REGION_PATTERN)
 
 
 class CustomerOut(BaseModel):
@@ -71,6 +73,19 @@ class OrderOut(BaseModel):
 
 class Page[T](BaseModel):
     items: list[T]
+    limit: int
+    offset: int
+
+
+class CustomerSearchPage(BaseModel):
+    """A page of search hits plus the size of the whole result set.
+
+    The admin console needs `total` to render the pager, so this cannot reuse
+    `Page`, which the other list endpoints return without a count.
+    """
+
+    items: list[CustomerOut]
+    total: int
     limit: int
     offset: int
 

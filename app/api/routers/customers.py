@@ -1,18 +1,65 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, PageParams
-from app.api.schemas import CustomerCreate, CustomerOut, Page
+from app.api.schemas import CustomerCreate, CustomerOut, CustomerSearchPage, Page
 from app.db.models import Customer
 from app.db.repositories import CustomerRepository
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
+# The console sends `q` for the name box and one `region` per checked box.
+SearchPrefix = Annotated[str, Query(alias="q", min_length=1, max_length=120)]
+RegionFilter = Annotated[list[str] | None, Query(alias="region")]
+
+
+def _clean_regions(regions: list[str] | None) -> list[str]:
+    """Trim the region codes and drop blanks and duplicates, keeping order."""
+    seen: list[str] = []
+    for raw in regions or []:
+        code = raw.strip().upper()
+        if code and code not in seen:
+            seen.append(code)
+    return seen
+
 
 @router.get("/me", response_model=CustomerOut)
 def me(db: DbSession, principal: CurrentPrincipal) -> Customer:
     return CustomerRepository(db).get(principal.customer)
+
+
+@router.get("/search", response_model=CustomerSearchPage)
+def search_customers(
+    db: DbSession,
+    _admin: AdminPrincipal,
+    page: PageParams,
+    q: SearchPrefix,
+    region: RegionFilter = None,
+) -> dict[str, object]:
+    """Find customers by the start of their name, optionally within regions.
+
+    Support uses this to pull up an account from a half-remembered name. With
+    no `region` checkbox ticked the search covers every region.
+    """
+    repo = CustomerRepository(db)
+    regions = _clean_regions(region)
+    rows = repo.search(q, regions, limit=page.limit, offset=page.offset)
+    total = repo.search_count(q, regions)
+    return {
+        "items": rows,
+        "total": total,
+        "limit": page.limit,
+        "offset": page.offset,
+    }
+
+
+@router.get("/lookup", response_model=CustomerOut)
+def lookup_customer(db: DbSession, _admin: AdminPrincipal, q: SearchPrefix) -> Customer:
+    """Jump straight to a customer when the console only needs one hit."""
+    return CustomerRepository(db).first_match(q)
 
 
 @router.get("", response_model=Page[CustomerOut])
