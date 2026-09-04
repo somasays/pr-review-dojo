@@ -1,7 +1,7 @@
 """add shipping fields to orders
 
-Revision ID: 0002
-Revises: 0001
+Revision ID: 0003
+Revises: 0002
 Create Date: 2026-09-04 11:15:00
 """
 from typing import Sequence, Union
