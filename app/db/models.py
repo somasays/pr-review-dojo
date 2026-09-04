@@ -78,6 +78,11 @@ class Order(Base):
     items: Mapped[list[OrderItem]] = relationship(
         back_populates="order", cascade="all, delete-orphan", lazy="selectin"
     )
+    notes: Mapped[list[OrderNote]] = relationship(
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OrderNote.id",
+    )
 
 
 class OrderItem(Base):
@@ -92,3 +97,18 @@ class OrderItem(Base):
 
     order: Mapped[Order] = relationship(back_populates="items")
     product: Mapped[Product] = relationship()
+
+
+class OrderNote(Base):
+    __tablename__ = "order_notes"
+    __table_args__ = (Index("ix_order_notes_order", "order_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False)
+    author: Mapped[str] = mapped_column(String(64), nullable=False)
+    body: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    order: Mapped[Order] = relationship(back_populates="notes")

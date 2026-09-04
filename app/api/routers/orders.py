@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams
-from app.api.schemas import OrderCreate, OrderOut, Page
+from app.api.schemas import OrderCreate, OrderNoteIn, OrderOut, Page
 from app.db.models import Order
 from app.db.repositories import NotFound, OrderRepository
 from app.domain.order_state import InvalidTransition
@@ -51,6 +51,25 @@ def get_order(order_id: int, db: DbSession, principal: CurrentPrincipal) -> Orde
         return repo.get_for_customer(order_id, principal.customer)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
+
+
+@router.patch("/{order_id}/notes", response_model=OrderOut)
+def add_order_note(
+    order_id: int, note: OrderNoteIn, db: DbSession, principal: CurrentPrincipal
+) -> Order:
+    """Attach a free-text note to an order.
+
+    Returns 201 with the note attached to the order it belongs to.
+    """
+    repo = OrderRepository(db)
+    try:
+        order = repo.get(order_id)
+    except NotFound as exc:
+        raise HTTPException(404, "order not found") from exc
+    author = "admin" if principal.is_admin else f"customer:{principal.customer}"
+    repo.add_note(order, note.body, author)
+    db.commit()
+    return order
 
 
 @router.post("/{order_id}/cancel", response_model=OrderOut)
