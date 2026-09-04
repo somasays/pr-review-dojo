@@ -16,8 +16,7 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
 from app.domain.dates import DateRange, parse_dt
-from app.jobs.daily_orders import LakePaths
-from app.jobs.schemas import ORDERS_SCHEMA
+from app.jobs.daily_orders import LakePaths, read_orders
 from app.jobs.spark_session import get_spark
 
 log = logging.getLogger(__name__)
@@ -43,14 +42,15 @@ def enrich(
     else:
         days = DateRange(parse_dt(start), parse_dt(end))
     log.info("enriching orders for %s..%s", days.start, days.end)
+    out = enrich_daily(read_orders(spark, paths, days))
+    if not dry_run:
+        write_enrichment(out, paths)
+    return out
 
-    df = (
-        spark.read.schema(ORDERS_SCHEMA)
-        .option("basePath", paths.orders)
-        .parquet(paths.orders)
-        .filter(F.col("dt").isin(days.partition_keys()))
-    )
 
+def enrich_daily(orders: DataFrame) -> DataFrame:
+    """One row per (customer_id, dt)."""
+    df = orders
     df = df.withColumn(
         "is_paid",
         F.when(F.col("status").isin(*PAID_STATUSES), F.lit(1)).otherwise(F.lit(0)),
@@ -95,12 +95,14 @@ def enrich(
         "dt",
     )
 
-    if not dry_run:
-        # Dynamic partition overwrite: only the days present in out are replaced.
-        out.repartition("dt").write.mode("overwrite").partitionBy("dt").parquet(
-            paths.customer_daily_enrichment
-        )
     return out
+
+
+def write_enrichment(df: DataFrame, paths: LakePaths) -> None:
+    # Dynamic partition overwrite: only the partitions present in df are replaced.
+    df.repartition("dt").write.mode("overwrite").partitionBy("dt").parquet(
+        paths.customer_daily_enrichment
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
