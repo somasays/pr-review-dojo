@@ -1,14 +1,17 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from chispa import assert_df_equality
 
-from app.jobs.daily_enrichment import enrich, main
+from app.domain.dates import DateRange
+from app.jobs.daily_enrichment import enrich_daily, main
+from app.jobs.daily_orders import LakePaths, read_orders
 from app.jobs.schemas import CUSTOMER_ENRICHMENT_SCHEMA, ORDERS_SCHEMA
 
 
 def test_enrich_metrics_for_one_day(spark, lake):
-    actual = enrich(spark, lake, "2026-08-01", "2026-08-01", dry_run=True).orderBy("customer_id")
+    orders = read_orders(spark, LakePaths(lake), DateRange.single(date(2026, 8, 1)))
+    actual = enrich_daily(orders).orderBy("customer_id")
     expected = spark.createDataFrame(
         [
             (1, 2, Decimal("10.50"), Decimal("25.50"), 0, 0, 3, "2026-08-01"),
@@ -20,17 +23,18 @@ def test_enrich_metrics_for_one_day(spark, lake):
     assert_df_equality(actual, expected, ignore_nullable=True)
 
 
-def test_large_order_flag(spark, tmp_path):
-    root = str(tmp_path / "lake")
-    rows = [
-        (1, 1, "paid", "USD", Decimal("49.00"), datetime(2026, 8, 1, 9, tzinfo=UTC), "2026-08-01"),
-        (2, 1, "paid", "USD", Decimal("51.00"), datetime(2026, 8, 1, 10, tzinfo=UTC), "2026-08-01"),
-    ]
-    spark.createDataFrame(rows, ORDERS_SCHEMA).write.mode("overwrite").partitionBy("dt").parquet(
-        f"{root}/orders"
+def test_large_order_threshold_is_inclusive(spark):
+    dt = "2026-08-01"
+    orders = spark.createDataFrame(
+        [
+            (1, 1, "paid", "USD", Decimal("49.00"), datetime(2026, 8, 1, 9, tzinfo=UTC), dt),
+            (2, 1, "paid", "USD", Decimal("50.00"), datetime(2026, 8, 1, 10, tzinfo=UTC), dt),
+            (3, 1, "paid", "USD", Decimal("51.00"), datetime(2026, 8, 1, 11, tzinfo=UTC), dt),
+        ],
+        ORDERS_SCHEMA,
     )
-    actual = enrich(spark, root, "2026-08-01", "2026-08-01", dry_run=True).collect()[0]
-    assert actual.large_order_count == 1
+    actual = enrich_daily(orders).collect()[0]
+    assert actual.large_order_count == 2  # 50.00 is the threshold and counts as large
 
 
 def test_main_writes_only_the_requested_partitions(spark, lake):
