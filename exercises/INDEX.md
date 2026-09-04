@@ -15,3 +15,4 @@
 | 11 | test | sqlalchemy | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/30) | - | | |
 | 14 | test | spark_batch | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/33) | - | | |
 | 15 | teach | concurrency | easy | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/32) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/39) | | |
+| 12 | teach | rewrite:domain | rewrite | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/28) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/38) | | |
