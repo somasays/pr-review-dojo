@@ -57,6 +57,7 @@ def retry[T](
         except policy.retry_on as exc:
             last = exc
             log.warning("attempt %d/%d failed: %s", attempt, policy.attempts, exc)
-            log.warning("retrying in %.1fs", policy.delay(attempt + 1))
+            if attempt < policy.attempts:
+                log.warning("retrying in %.1fs", policy.delay(attempt + 1))
     assert last is not None
     raise RetryExhausted(policy.attempts, last)
