@@ -33,6 +33,10 @@ class LakePaths:
     def daily_customer_orders(self) -> str:
         return f"{self.root}/daily_customer_orders"
 
+    @property
+    def customer_daily_enrichment(self) -> str:
+        return f"{self.root}/customer_daily_enrichment"
+
 
 def read_orders(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataFrame:
     """Read only the partitions in the range. Never a full scan."""

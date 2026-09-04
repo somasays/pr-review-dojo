@@ -16,6 +16,7 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
 from app.domain.dates import DateRange, parse_dt
+from app.jobs.daily_orders import LakePaths
 from app.jobs.schemas import ORDERS_SCHEMA
 from app.jobs.spark_session import get_spark
 
@@ -30,7 +31,7 @@ PAID_STATUSES = ("paid", "shipped", "delivered")
 
 def enrich(
     spark: SparkSession,
-    root: str,
+    paths: LakePaths,
     start: str,
     end: str,
     backfill: bool = False,
@@ -43,11 +44,10 @@ def enrich(
         days = DateRange(parse_dt(start), parse_dt(end))
     log.info("enriching orders for %s..%s", days.start, days.end)
 
-    orders_path = f"{root}/orders"
     df = (
         spark.read.schema(ORDERS_SCHEMA)
-        .option("basePath", orders_path)
-        .parquet(orders_path)
+        .option("basePath", paths.orders)
+        .parquet(paths.orders)
         .filter(F.col("dt").isin(days.partition_keys()))
     )
 
@@ -98,7 +98,7 @@ def enrich(
     if not dry_run:
         # Dynamic partition overwrite: only the days present in out are replaced.
         out.repartition("dt").write.mode("overwrite").partitionBy("dt").parquet(
-            f"{root}/customer_daily_enrichment"
+            paths.customer_daily_enrichment
         )
     return out
 
@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     enrich(
         get_spark("daily_enrichment"),
-        args.root,
+        LakePaths(args.root),
         args.start,
         args.end,
         backfill=args.backfill,
