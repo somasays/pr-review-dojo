@@ -3,10 +3,17 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams
-from app.api.schemas import OrderCreate, OrderOut, Page
+from app.api.schemas import (
+    OrderCreate,
+    OrderOut,
+    Page,
+    RefundPreviewOut,
+    RefundRequest,
+)
 from app.db.models import Order
 from app.db.repositories import NotFound, OrderRepository
 from app.domain.order_state import InvalidTransition
+from app.services.notification import NotificationError
 from app.services.order_service import CreateOrderCommand
 from app.services.pricing_service import (
     InsufficientStock,
@@ -85,3 +92,35 @@ def ship_order(order_id: int, _admin: AdminPrincipal, service: Orders) -> Order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
     except InvalidTransition as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
+@router.post("/{order_id}/refund", response_model=OrderOut)
+def refund_order(
+    order_id: int, body: RefundRequest, _admin: AdminPrincipal, service: Orders
+) -> Order:
+    try:
+        return service.refund(order_id, reason=body.reason)
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
+    except InvalidTransition as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except NotificationError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+
+@router.get("/{order_id}/refund-preview", response_model=RefundPreviewOut)
+def refund_preview(
+    order_id: int, db: DbSession, _admin: AdminPrincipal, service: Orders
+) -> dict[str, object]:
+    """What support sees before pressing refund: the amount and the per line split."""
+    try:
+        order = OrderRepository(db).get(order_id)
+        lines = service.refund_lines(order_id)
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
+    return {
+        "order_id": order.id,
+        "currency": order.currency,
+        "total": order.total,
+        "lines": [{"sku": sku, "amount": amount.amount} for sku, amount in lines],
+    }

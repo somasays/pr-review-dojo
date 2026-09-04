@@ -46,6 +46,22 @@ class OrderCreate(BaseModel):
         return items
 
 
+class RefundRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=200)
+
+
+class RefundLineOut(BaseModel):
+    sku: str
+    amount: Decimal
+
+
+class RefundPreviewOut(BaseModel):
+    order_id: int
+    currency: str
+    total: Decimal
+    lines: list[RefundLineOut]
+
+
 class OrderItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
