@@ -97,7 +97,7 @@ class VolumeTier:
     def __post_init__(self) -> None:
         if self.min_quantity <= 0:
             raise ValueError("tier min_quantity must be positive")
-        if self.percent_off > 100:
+        if not 0 <= self.percent_off <= 100:
             raise ValueError(f"tier percent_off out of range: {self.percent_off}")
 
     @property
