@@ -24,8 +24,9 @@ class SlowGetDict(dict):
     """A dict whose ``get`` is slow, so an unguarded read-modify-write loses updates."""
 
     def get(self, key: Any, default: Any = None) -> Any:  # noqa: ANN401
+        value = super().get(key, default)
         time.sleep(STEP)
-        return super().get(key, default)
+        return value
 
 
 class SlowItemsDict(dict):
