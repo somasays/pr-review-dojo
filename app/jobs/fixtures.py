@@ -9,7 +9,8 @@ from decimal import Decimal
 
 from pyspark.sql import SparkSession
 
-from app.jobs.schemas import ORDER_LINES_SCHEMA, ORDERS_SCHEMA
+from app.jobs.daily_orders import LakePaths
+from app.jobs.schemas import ORDER_LINES_SCHEMA, ORDERS_SCHEMA, PRODUCTS_SCHEMA
 
 STATUSES = ["paid", "paid", "shipped", "cancelled", "pending_payment", "delivered"]
 SKUS = ["WIDGET", "GADGET", "GIZMO"]
@@ -70,8 +71,8 @@ def write_order_lines_fixture(spark: SparkSession, root: str, days: int = 3) -> 
 
 
 def write_products_fixture(spark: SparkSession, root: str, rows: list[tuple] | None = None) -> str:
-    path = f"{root}/products"
-    df = spark.createDataFrame(rows if rows is not None else PRODUCT_ROWS, PRODUCTS_DDL)
+    path = LakePaths(root).products
+    df = spark.createDataFrame(rows if rows is not None else PRODUCT_ROWS, PRODUCTS_SCHEMA)
     df.write.mode("overwrite").parquet(path)
     return path
 

@@ -14,14 +14,12 @@ from __future__ import annotations
 import argparse
 import logging
 from dataclasses import dataclass
-from datetime import date, timedelta
 
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
-from pyspark.sql.types import StringType
 
 from app.domain.dates import DateRange, parse_dt
-from app.jobs.schemas import ORDER_LINES_SCHEMA, ORDERS_SCHEMA
+from app.jobs.schemas import ORDER_LINES_SCHEMA, ORDERS_SCHEMA, PRODUCTS_SCHEMA
 from app.jobs.spark_session import get_spark
 
 log = logging.getLogger(__name__)
@@ -38,6 +36,10 @@ class LakePaths:
     @property
     def order_lines(self) -> str:
         return f"{self.root}/order_lines"
+
+    @property
+    def products(self) -> str:
+        return f"{self.root}/products"
 
     @property
     def daily_customer_orders(self) -> str:
@@ -88,8 +90,21 @@ def read_order_lines(spark: SparkSession, paths: LakePaths, days: DateRange) -> 
 
 
 def read_products(spark: SparkSession, paths: LakePaths) -> DataFrame:
-    """Products dimension. Small table, the header names are already right."""
-    return spark.read.parquet(f"{paths.root}/products").cache()
+    """Products dimension, one row per sku.
+
+    The table keeps one row per (sku, effective_date), so only the current
+    version of each sku is returned. Joining the raw table on sku alone would
+    emit one order line per historical price.
+    """
+    versions = (
+        spark.read.schema(PRODUCTS_SCHEMA)
+        .parquet(paths.products)
+        .withColumn(
+            "_rank",
+            F.row_number().over(Window.partitionBy("sku").orderBy(F.col("effective_date").desc())),
+        )
+    )
+    return versions.filter(F.col("_rank") == 1).drop("_rank")
 
 
 def aggregate_by_product(lines: DataFrame, products: DataFrame) -> DataFrame:
@@ -98,11 +113,12 @@ def aggregate_by_product(lines: DataFrame, products: DataFrame) -> DataFrame:
         F.col("status").isin("paid", "shipped", "delivered"), F.col("line_total")
     ).otherwise(F.lit(0).cast("decimal(12,2)"))
     # Merchandising wants "Home Office", not "home_office".
-    category_label = F.udf(lambda c: c.replace("_", " ").title(), StringType())
+    category = F.coalesce(F.col("category"), F.lit("unknown"))
     joined = (
         lines.join(products, "sku", "left")
+        .withColumn("category", category)
         .filter(F.col("category") != "INTERNAL")
-        .withColumn("category_label", category_label(F.col("category")))
+        .withColumn("category_label", F.initcap(F.regexp_replace(F.col("category"), "_", " ")))
     )
     return (
         joined.groupBy("sku", "dt")
@@ -110,8 +126,8 @@ def aggregate_by_product(lines: DataFrame, products: DataFrame) -> DataFrame:
             F.first("name").alias("product_name"),
             F.first("category_label").alias("category_label"),
             F.sum("quantity").cast("int").alias("units_sold"),
-            F.round(F.sum(line_revenue.cast("double")), 2).alias("revenue"),
-            F.round(F.avg(F.col("line_total").cast("double")), 2).alias("avg_line_value"),
+            F.sum(line_revenue).cast("decimal(14,2)").alias("revenue"),
+            F.avg(F.col("line_total")).cast("decimal(14,2)").alias("avg_line_value"),
         )
         .select(
             "sku",
@@ -134,47 +150,31 @@ def write_daily(df: DataFrame, paths: LakePaths) -> None:
 
 def write_daily_products(df: DataFrame, paths: LakePaths) -> None:
     # Dynamic partition overwrite: only the partitions present in df are replaced.
-    df.write.mode("overwrite").partitionBy("dt").parquet(paths.daily_product_sales)
-
-
-def read_order_lines_range(
-    spark: SparkSession, paths: LakePaths, start: date, end: date
-) -> DataFrame:
-    """Generalized for the backfill flag: a plain date range instead of a long IN list."""
-    return (
-        spark.read.schema(ORDER_LINES_SCHEMA)
-        .option("basePath", paths.order_lines)
-        .parquet(paths.order_lines)
-        .filter(F.to_date(F.col("dt"), "yyyy-MM-dd").between(start, end))
+    df.repartition("dt").write.mode("overwrite").partitionBy("dt").parquet(
+        paths.daily_product_sales
     )
 
 
-def write_daily_products_backfill(df: DataFrame, paths: LakePaths) -> None:
-    # Each chunk is written independently so a slow backfill can resume mid-range.
-    df.write.mode("append").partitionBy("dt").parquet(paths.daily_product_sales)
-
-
-def run(
-    spark: SparkSession, paths: LakePaths, days: DateRange, backfill: bool = False
-) -> DataFrame:
+def run(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataFrame:
     log.info("aggregating orders for %s..%s", days.start, days.end)
     orders = read_orders(spark, paths, days)
     daily = aggregate_daily(orders)
     write_daily(daily, paths)
 
-    if backfill:
-        products = read_products(spark, paths)
-        cur = days.start
-        while cur <= days.end:
-            chunk_end = min(cur + timedelta(days=6), days.end)
-            lines = read_order_lines_range(spark, paths, cur, chunk_end)
-            write_daily_products_backfill(aggregate_by_product(lines, products), paths)
-            cur = chunk_end + timedelta(days=1)
-    else:
-        lines = read_order_lines(spark, paths, days)
-        products = read_products(spark, paths)
-        write_daily_products(aggregate_by_product(lines, products), paths)
+    lines = read_order_lines(spark, paths, days)
+    products = read_products(spark, paths)
+    write_daily_products(aggregate_by_product(lines, products), paths)
     return daily
+
+
+def run_backfill(
+    spark: SparkSession, paths: LakePaths, days: DateRange, chunk_days: int = 7
+) -> None:
+    """Chunk a long range so each piece is written and read like any other day."""
+    products = read_products(spark, paths)
+    for chunk in days.split(chunk_days):
+        lines = read_order_lines(spark, paths, chunk)
+        write_daily_products(aggregate_by_product(lines, products), paths)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -187,7 +187,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
     days = DateRange(parse_dt(args.start), parse_dt(args.end))
-    run(get_spark("daily_orders"), LakePaths(args.root), days, backfill=args.backfill)
+    spark = get_spark("daily_orders")
+    if args.backfill:
+        run_backfill(spark, LakePaths(args.root), days)
+    else:
+        run(spark, LakePaths(args.root), days)
 
 
 if __name__ == "__main__":

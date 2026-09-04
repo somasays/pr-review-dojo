@@ -44,6 +44,16 @@ DAILY_CUSTOMER_SCHEMA = StructType(
     ]
 )
 
+PRODUCTS_SCHEMA = StructType(
+    [
+        StructField("sku", StringType(), False),
+        StructField("name", StringType(), False),
+        StructField("category", StringType(), False),
+        StructField("unit_price", DecimalType(12, 2), False),
+        StructField("effective_date", StringType(), False),
+    ]
+)
+
 ORDER_LINES_SCHEMA = StructType(
     [
         StructField("order_id", IntegerType(), False),

@@ -13,6 +13,7 @@ from app.jobs.daily_orders import (
     read_orders,
     read_products,
     run,
+    run_backfill,
 )
 from app.jobs.schemas import DAILY_CUSTOMER_SCHEMA
 
@@ -82,7 +83,7 @@ def test_run_writes_daily_product_sales(spark, lake):
 
 def test_run_backfill_writes_daily_product_sales(spark, lake):
     paths = LakePaths(lake)
-    run(spark, paths, DateRange(date(2026, 8, 1), date(2026, 8, 3)), backfill=True)
+    run_backfill(spark, paths, DateRange(date(2026, 8, 1), date(2026, 8, 3)))
     written = spark.read.parquet(paths.daily_product_sales)
     assert {r.dt for r in written.select("dt").distinct().collect()} == {
         "2026-08-01",
