@@ -10,3 +10,4 @@
 | 09 | test | services | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/18) | - | | |
 | 07 | test | logic | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/23) | - | | |
 | 08 | teach | async | easy | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/13) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/20) | | |
+| 10 | teach | migrations | easy | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/15) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/22) | | |
