@@ -30,6 +30,10 @@ The streaming job reads newline-delimited JSON events from a directory (a
 stand-in for the Kafka topic) and writes `orders_latest`, keyed by `order_id`.
 Every `foreachBatch` write is a full merge, so replaying a batch is safe.
 
+With `--counts-target` the job also maintains `status_change_counts`, keyed by
+`(window_start, status)`, holding the number of status changes seen in each
+hourly window. The operations dashboard reads it directly.
+
 ## Conventions
 
 These are the rules of this codebase. Exercise PRs will break them.

@@ -77,3 +77,39 @@ def write_events_fixture(source_dir: str, with_duplicate: bool = True) -> None:
     with open(f"{source_dir}/events-0001.json", "w") as f:
         for e in events:
             f.write(json.dumps(e) + "\n")
+
+
+STATUS_FLOW = ["pending_payment", "paid", "shipped", "delivered"]
+
+
+def status_change_events(
+    base: datetime, hours: int = 4, per_hour: int = 3
+) -> list[dict[str, object]]:
+    """Status change events spread over consecutive hourly windows."""
+    events: list[dict[str, object]] = []
+    n = 0
+    for h in range(hours):
+        for i in range(per_hour):
+            n += 1
+            events.append(
+                {
+                    "event_id": f"s{n}",
+                    "order_id": 100 + n,
+                    "customer_id": (n % 3) + 1,
+                    "status": STATUS_FLOW[i % len(STATUS_FLOW)],
+                    "total": "42.00",
+                    "event_time": (base + timedelta(hours=h, minutes=i)).isoformat(),
+                }
+            )
+    return events
+
+
+def write_status_change_fixture(source_dir: str, hours: int = 4, per_hour: int = 3) -> str:
+    """Write one events file that spans several hourly windows."""
+    os.makedirs(source_dir, exist_ok=True)
+    path = f"{source_dir}/events-9001.json"
+    base = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+    with open(path, "w") as f:
+        for event in status_change_events(base, hours=hours, per_hour=per_hour):
+            f.write(json.dumps(event) + "\n")
+    return path
