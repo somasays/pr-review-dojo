@@ -14,6 +14,13 @@ from decimal import Decimal, InvalidOperation
 from app.domain.money import Money
 from app.domain.pricing import Discount, DiscountKind, Line, Quote, quote
 
+LABEL_WIDTH = 10
+MAX_QUANTITY = 999
+
+_ITEM_FIELDS = ("sku", "unit_price", "quantity")
+_DISCOUNT_FIELDS = ("code", "kind", "value")
+_KINDS = {kind.value for kind in DiscountKind}
+
 
 @dataclass(frozen=True, slots=True)
 class Receipt:
@@ -37,7 +44,7 @@ def parse_items(raw_items: list[dict[str, str]], currency: str = "USD") -> list[
     # loop over the items
     for it in raw_items:
         # an item needs all three fields
-        if not all(field in it for field in ("sku", "unit_price", "quantity")):
+        if not all(field in it for field in _ITEM_FIELDS):
             raise ValueError("item is missing one of sku, unit_price, quantity")
         # normalize the sku
         x = it["sku"].strip().upper()
@@ -53,8 +60,7 @@ def parse_items(raw_items: list[dict[str, str]], currency: str = "USD") -> list[
         # Line rejects a non-positive quantity and a negative price for us,
         # with the same two messages, in the same order.
         ln = Line(x, Money(p, currency), q)
-        # nobody orders more than 999 of one thing
-        if q > 999:
+        if q > MAX_QUANTITY:
             raise ValueError(f"quantity too large for {x}")
         # keep the line
         lines.append(ln)
@@ -68,13 +74,13 @@ def parse_discounts(raw_discounts: list[dict[str, str]], currency: str = "USD") 
     # loop over the discounts
     for d in raw_discounts:
         # a discount needs a code, a kind, and a value
-        if not all(field in d for field in ("code", "kind", "value")):
+        if not all(field in d for field in _DISCOUNT_FIELDS):
             raise ValueError("discount is missing one of code, kind, value")
         c = d["code"].strip().upper()
         if not c:
             raise ValueError("discount is missing a code")
         k = d["kind"].strip().lower()
-        if k not in {kind.value for kind in DiscountKind}:
+        if k not in _KINDS:
             raise ValueError(f"unknown discount kind {k!r}")
         # parse the value
         v = _to_decimal(d["value"], f"discount value is not a number for {c}")
@@ -94,14 +100,18 @@ def format_receipt(lines: list[Line], priced: Quote, region: str) -> str:
     # build the text the storefront prints
     tmp = [f"Cart preview ({region})"]
     for ln in lines:
-        tmp.append(f"  {ln.sku:<10} {ln.quantity} x {ln.unit_price.amount} = {ln.subtotal.amount}")
-    tmp.append(f"  {'Subtotal':<10} {priced.subtotal.amount} {currency}")
+        tmp.append(
+            f"  {ln.sku:<{LABEL_WIDTH}} {ln.quantity} x "
+            f"{ln.unit_price.amount} = {ln.subtotal.amount}"
+        )
+    tmp.append(f"  {'Subtotal':<{LABEL_WIDTH}} {priced.subtotal.amount} {currency}")
     if priced.applied_codes:
         tmp.append(
-            f"  {'Discount':<10} -{priced.discount.amount} {currency} ({priced.applied_codes[0]})"
+            f"  {'Discount':<{LABEL_WIDTH}} -{priced.discount.amount} "
+            f"{currency} ({priced.applied_codes[0]})"
         )
-    tmp.append(f"  {'Tax':<10} {priced.tax.amount} {currency}")
-    tmp.append(f"  {'Total':<10} {priced.total.amount} {currency}")
+    tmp.append(f"  {'Tax':<{LABEL_WIDTH}} {priced.tax.amount} {currency}")
+    tmp.append(f"  {'Total':<{LABEL_WIDTH}} {priced.total.amount} {currency}")
     return "\n".join(tmp)
 
 
