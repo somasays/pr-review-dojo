@@ -169,8 +169,9 @@ def quote(
 
     A volume tier discount is earned by the total unit count and is taken on
     top of the best discount code. Tax is applied after both. Free orders still
-    produce a valid quote. `volume_codes` collects the tier codes that applied,
-    so a caller pricing several carts can keep its own list.
+    produce a valid quote. The combined discount never exceeds the subtotal.
+    `volume_codes` collects the tier codes that applied, so a caller pricing
+    several carts can keep its own list.
     """
     if not lines:
         raise ValueError("cannot quote an empty order")
@@ -184,6 +185,8 @@ def quote(
     chosen = best_discount(subtotal, discounts)
     code_off = chosen.apply(subtotal) if chosen else Money.zero(currency)
     discount = volume_off + code_off
+    if subtotal < discount:
+        discount = subtotal
     taxable = subtotal - discount
     tax = taxable.percent(tax_rate_for(region))
     total = taxable + tax
