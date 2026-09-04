@@ -53,3 +53,23 @@ def test_admin_order_list_created_since(client):
     empty = client.get(f"/admin/orders?created_since={tomorrow}", headers=A).json()
     assert empty["items"] == []
     assert empty["total"] == 0
+
+
+def test_admin_order_list_pages_without_repeating(client):
+    ids = {_create_order(client, f"admin-list-000{i}") for i in range(2, 5)}
+    first = client.get("/admin/orders?limit=2&offset=0", headers=A).json()
+    second = client.get("/admin/orders?limit=2&offset=2", headers=A).json()
+    first_ids = {o["id"] for o in first["items"]}
+    second_ids = {o["id"] for o in second["items"]}
+    assert first_ids.isdisjoint(second_ids)
+    assert first_ids | second_ids == ids
+
+
+def test_daily_order_counts(client):
+    _create_order(client)
+    r = client.get("/admin/orders/daily-counts?days=1", headers=A)
+    assert r.status_code == 200, r.text
+    days = r.json()["days"]
+    assert len(days) == 1
+    assert days[0]["day"] == date.today().isoformat()
+    assert days[0]["count"] == 1

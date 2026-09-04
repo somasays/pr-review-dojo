@@ -130,6 +130,7 @@ class OrderRepository:
         stmt = select(Order).options(selectinload(Order.customer))
         for clause in _order_filters(status, customer_id, created_since):
             stmt = stmt.where(clause)
+        stmt = stmt.order_by(Order.created_at.desc(), Order.id.desc())
         return self.session.scalars(stmt.limit(limit).offset(offset)).all()
 
     def count_all(
@@ -143,6 +144,15 @@ class OrderRepository:
         for clause in _order_filters(status, customer_id, created_since):
             stmt = stmt.where(clause)
         return self.session.scalar(stmt) or 0
+
+    def daily_counts(self, since: datetime) -> dict[str, int]:
+        """Order counts by UTC calendar day, for orders created on or after `since`."""
+        stmt = (
+            select(func.date(Order.created_at), func.count(Order.id))
+            .where(Order.created_at >= since)
+            .group_by(func.date(Order.created_at))
+        )
+        return {str(day): count for day, count in self.session.execute(stmt).all()}
 
     def list_by_status(self, status: OrderStatus, limit: int = 100) -> Sequence[Order]:
         stmt = select(Order).where(Order.status == status).order_by(Order.id).limit(limit)

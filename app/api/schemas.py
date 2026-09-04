@@ -93,7 +93,6 @@ class AdminCustomerRef(BaseModel):
     email: EmailStr
     name: str
     region: str
-    api_key_hash: str | None
 
 
 class AdminOrderOut(OrderOut):
