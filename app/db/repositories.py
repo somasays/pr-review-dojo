@@ -75,7 +75,10 @@ class CustomerRepository:
         return int(total)
 
     def first_match(self, prefix: str) -> Customer:
-        """Return the lowest-id customer whose name starts with `prefix`, or None."""
+        """Return the lowest-id customer whose name starts with `prefix`.
+
+        Raises `NotFound` when nothing matches.
+        """
         row = (
             self.session.query(Customer)
             .filter(Customer.name.startswith(prefix))
