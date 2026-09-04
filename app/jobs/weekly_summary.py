@@ -76,9 +76,9 @@ def weekly_summary(spark: SparkSession, paths: LakePaths, days: DateRange) -> Da
     daily = read_daily(spark, paths, days)
     customers = read_customers(spark, paths)
     weekly = roll_up_weeks(daily)
-    return weekly.join(customers, "customer_id").select(
+    return weekly.join(customers, "customer_id", "left").select(
         "customer_id",
-        "region",
+        F.coalesce(F.col("region"), F.lit("unknown")).alias("region"),
         "n_orders",
         "total",
         "cancelled_count",
