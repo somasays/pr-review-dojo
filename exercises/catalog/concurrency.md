@@ -109,7 +109,7 @@ defect there earns a false positive.
       with _flusher_lock:
           if _flusher is None:
               _flusher = NotificationFlusher(_sender)
-      _flusher.start()  # outside the lock, and every thread runs it
+      _flusher.start()          # outside the lock, and every thread runs it
       _flusher.queue = deque()  # reset after publishing
   ```
   It looks more careful than CC-04, which is what makes it a good plant.
