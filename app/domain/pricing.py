@@ -115,7 +115,7 @@ def tier_for(quantity: int) -> VolumeTier | None:
     """The best volume tier for a unit count, or None below the first tier."""
     match: VolumeTier | None = None
     for tier in VOLUME_TIERS:
-        if quantity > tier.min_quantity:
+        if quantity >= tier.min_quantity:
             match = tier
     return match
 
