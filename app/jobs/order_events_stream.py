@@ -99,19 +99,27 @@ def merge_paid_counts(batch: DataFrame, batch_id: int, target: str) -> None:
     """Add this batch's paid orders to the running count per customer.
 
     Reads the current counts, adds the counts from this batch, and rewrites
-    the table with one row per customer.
+    the table with one row per customer. Adding is not idempotent, so the
+    batch id that produced the table is stored alongside the counts and a
+    batch Spark replays after a failure is skipped.
     """
     spark = batch.sparkSession
     deltas = batch_paid_counts(batch)
     if os.path.exists(target):
         existing = spark.read.parquet(target)
+        applied = existing.agg(F.max("_batch_id")).first()[0]
+        if applied is not None and applied >= batch_id:
+            log.info("paid counts batch %d already applied, skipping", batch_id)
+            return
         merged = (
-            existing.unionByName(deltas)
+            existing.drop("_batch_id")
+            .unionByName(deltas)
             .groupBy("customer_id")
             .agg(F.sum("paid_count").cast("int").alias("paid_count"))
         )
     else:
         merged = deltas
+    merged = merged.withColumn("_batch_id", F.lit(batch_id))
     # Stage first: Spark cannot overwrite a path it is still reading from.
     staging = f"{target}__staging"
     merged.write.mode("overwrite").parquet(staging)
