@@ -7,6 +7,7 @@ instead of the real gateway.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -14,6 +15,8 @@ from typing import Protocol
 import httpx
 
 log = logging.getLogger(__name__)
+
+DEFAULT_TIMEOUT_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -48,12 +51,19 @@ class InMemorySupplierClient:
 class HttpSupplierClient:
     """Talks to the supplier over HTTP. One request per SKU."""
 
-    def __init__(self, base_url: str, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        client: httpx.AsyncClient | None = None,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.client = client or httpx.AsyncClient(timeout=None)
+        self.timeout_seconds = timeout_seconds
+        self.client = client or httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds))
 
     async def fetch(self, sku: str) -> SupplierStock | None:
-        response = await self.client.get(f"{self.base_url}/inventory/{sku}")
+        async with asyncio.timeout(self.timeout_seconds):
+            response = await self.client.get(f"{self.base_url}/inventory/{sku}")
         if response.status_code == 404:
             log.info("supplier does not carry %s", sku)
             return None

@@ -86,11 +86,14 @@ class QueueWorker:
                 self.stats.processed += 1
             except asyncio.CancelledError:
                 raise
-            except TimeoutError as exc:
+            except TimeoutError:
+                # A sync handler keeps running in its thread after the timeout, so a
+                # retry would repeat its side effects. Record it and move on.
                 log.warning(
                     "task %s attempt %d exceeded %.1fs", task.kind, task.attempt, self.task_timeout
                 )
-                await self._retry_or_fail(task, exc)
+                self.stats.failed += 1
+                self.stats.errors.append(f"{task.kind}: timed out after {self.task_timeout:.1f}s")
             except Exception as exc:
                 log.warning("task %s attempt %d failed: %s", task.kind, task.attempt, exc)
                 await self._retry_or_fail(task, exc)
@@ -106,10 +109,8 @@ class QueueWorker:
             self._inflight.add(t)
             t.add_done_callback(self._inflight.discard)
             t.add_done_callback(lambda _t: self.queue.task_done())
-        pending = list(self._inflight)
-        for t in pending:
-            t.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        if self._inflight:
+            await asyncio.gather(*self._inflight)
 
     async def run_until_idle(self, idle_after: float = 0.3) -> None:
         """Convenience for scripts: stop once the queue has been empty for a while."""
