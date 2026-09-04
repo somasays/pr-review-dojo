@@ -31,12 +31,12 @@ def test_weekly_summary_rolls_daily_rows_into_weeks(spark, lake):
     assert set(rows) == {(c, w) for c in (1, 2, 3) for w in ("2026-07-27", "2026-08-03")}
     # 2026-08-01 and 2026-08-02 both fall in the week starting Monday 2026-07-27.
     first = rows[(1, "2026-07-27")]
-    assert first.n_orders == 4
-    assert first.total == Decimal("21.00")
+    assert first.order_count == 4
+    assert first.paid_total == Decimal("21.00")
     assert first.cancelled_count == 2
     assert first.region == "US-CA"
     # 2026-08-03 is a Monday, so its week holds a single day.
-    assert rows[(3, "2026-08-03")].total == Decimal("91.00")
+    assert rows[(3, "2026-08-03")].paid_total == Decimal("91.00")
     assert rows[(3, "2026-08-03")].region == "EU-DE"
 
 

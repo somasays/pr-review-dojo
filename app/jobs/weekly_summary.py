@@ -64,8 +64,8 @@ def roll_up_weeks(daily: DataFrame) -> DataFrame:
         daily.withColumn("week_start", week_start_column())
         .groupBy("customer_id", "week_start")
         .agg(
-            F.sum("order_count").cast("int").alias("n_orders"),
-            F.sum("paid_total").cast("decimal(14,2)").alias("total"),
+            F.sum("order_count").cast("int").alias("order_count"),
+            F.sum("paid_total").cast("decimal(14,2)").alias("paid_total"),
             F.sum("cancelled_count").cast("int").alias("cancelled_count"),
         )
     )
@@ -79,8 +79,8 @@ def weekly_summary(spark: SparkSession, paths: LakePaths, days: DateRange) -> Da
     return weekly.join(customers, "customer_id", "left").select(
         "customer_id",
         F.coalesce(F.col("region"), F.lit("unknown")).alias("region"),
-        "n_orders",
-        "total",
+        "order_count",
+        "paid_total",
         "cancelled_count",
         "week_start",
     )
