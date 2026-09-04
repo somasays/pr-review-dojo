@@ -96,7 +96,6 @@ def write_weekly(df: DataFrame, paths: LakePaths) -> None:
 def run(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataFrame:
     log.info("summarizing weeks %s", ", ".join(week_keys(days)))
     weekly = weekly_summary(spark, paths, days)
-    log.info("writing %d customer weeks", weekly.count())
     write_weekly(weekly, paths)
     return weekly
 
