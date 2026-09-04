@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import AdminPrincipal, DbSession
 from app.api.schemas import ActivityOut, PeriodOut, StatusCount, WeekCount
@@ -19,6 +19,18 @@ from app.domain.dates import (
 )
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+
+def render_weekly_orders(span: DateRange, order_days: list[date]) -> list[WeekCount]:
+    """One count per week in `span`, for however many of `order_days` fall in it."""
+    return [
+        WeekCount(
+            start=week.start,
+            end=week.end,
+            orders=sum(1 for d in order_days if week.contains(d)),
+        )
+        for week in span.split_weekly()
+    ]
 
 
 @router.get("/orders/by-status", response_model=list[StatusCount])
@@ -52,6 +64,8 @@ def order_activity(
         today = parse_dt(partition_for(as_of)) if as_of else None
         requested = coverage([DateRange.last_n_days(days, today, include_today=include_today)])
     span = requested.span
+    if span is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "no reporting window given")
 
     rows = OrderRepository(db).created_between(
         datetime.combine(span.start, time.min, tzinfo=UTC),
@@ -59,6 +73,7 @@ def order_activity(
     )
     order_days = [o.created_at.date() for o in rows]
     active = coverage([DateRange.single(d) for d in order_days])
+    active_span = active.span
 
     return ActivityOut(
         span_start=span.start,
@@ -68,17 +83,10 @@ def order_activity(
         duplicate_days=requested.duplicate_days,
         business_days=business_days(span),
         orders=len(rows),
-        first_active_day=active.span.start,
-        last_active_day=active.span.end,
+        first_active_day=active_span.start if active_span else None,
+        last_active_day=active_span.end if active_span else None,
         active_days=active.covered_days,
         active_periods=[PeriodOut(start=r.start, end=r.end) for r in active.ranges],
-        weekly_orders=[
-            WeekCount(
-                start=week.start,
-                end=week.end,
-                orders=sum(1 for d in order_days if week.contains(d)),
-            )
-            for week in span.split_weekly()
-        ],
+        weekly_orders=render_weekly_orders(span, order_days),
         next_report_day=next_business_day(span.end),
     )

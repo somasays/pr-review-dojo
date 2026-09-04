@@ -99,8 +99,8 @@ class ActivityOut(BaseModel):
     duplicate_days: int
     business_days: int
     orders: int
-    first_active_day: date
-    last_active_day: date
+    first_active_day: date | None
+    last_active_day: date | None
     active_days: int
     active_periods: list[PeriodOut]
     weekly_orders: list[WeekCount]

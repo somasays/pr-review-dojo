@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from typing import NamedTuple
 
 DT_FORMAT = "%Y-%m-%d"
 DAYS_PER_WEEK = 7
@@ -39,7 +40,7 @@ def ensure_utc(ts: datetime) -> datetime:
 
 def partition_for(ts: datetime) -> str:
     """The dt partition key a timestamp belongs to."""
-    return to_dt(ts.date())
+    return to_dt(ensure_utc(ts).date())
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,10 +65,9 @@ class DateRange:
         """The n days ending yesterday, or ending today when include_today is set."""
         if n <= 0:
             raise ValueError("n must be positive")
-        today = today or datetime.now().date()
-        offset = 0 if include_today else 1
-        end = today - timedelta(days=offset)
-        return cls(end - timedelta(days=n - offset), end)
+        today = today or utcnow().date()
+        end = today if include_today else today - timedelta(days=1)
+        return cls(end - timedelta(days=n - 1), end)
 
     @property
     def days(self) -> int:
@@ -102,13 +102,7 @@ class DateRange:
 
     def split_weekly(self) -> list[DateRange]:
         """Split into consecutive weeks. The last chunk may be shorter."""
-        out: list[DateRange] = []
-        cur = self.start
-        while cur <= self.end:
-            week_end = min(cur + timedelta(days=DAYS_PER_WEEK), self.end)
-            out.append(DateRange(cur, week_end))
-            cur = week_end + timedelta(days=1)
-        return out
+        return self.split(DAYS_PER_WEEK)
 
 
 def month_range(year: int, month: int) -> DateRange:
@@ -125,11 +119,18 @@ def _month_start(year: int, month_index: int) -> date:
     return date(year + month_index // 12, month_index % 12 + 1, 1)
 
 
-def fiscal_quarter(day: date) -> tuple[int, int]:
+class FiscalQuarter(NamedTuple):
+    """A fiscal year and quarter (1 to 4), still unpackable like the plain tuple it replaces."""
+
+    year: int
+    quarter: int
+
+
+def fiscal_quarter(day: date) -> FiscalQuarter:
     """The fiscal year and quarter (1 to 4) that contain `day`."""
     year = day.year if day.month >= FISCAL_YEAR_START_MONTH else day.year - 1
     months_in = (day.month - FISCAL_YEAR_START_MONTH) % 12
-    return year, months_in // 3 + 1
+    return FiscalQuarter(year, months_in // 3 + 1)
 
 
 def quarter_range(fiscal_year: int, quarter: int) -> DateRange:
@@ -200,13 +201,16 @@ class Coverage:
         return self.requested_days - self.covered_days
 
     @property
-    def span(self) -> DateRange:
-        """The first covered day through the last covered day."""
+    def span(self) -> DateRange | None:
+        """The first covered day through the last covered day, or None when nothing is covered."""
+        if not self.ranges:
+            return None
         return DateRange(self.ranges[0].start, self.ranges[-1].end)
 
 
 def coverage(ranges: Iterable[DateRange]) -> Coverage:
     """Merge `ranges` and report how many days were asked for and how many are covered."""
+    ranges = list(ranges)
     requested = sum(r.days for r in ranges)
     merged = merge_ranges(ranges)
     return Coverage(tuple(merged), requested, sum(r.days for r in merged))

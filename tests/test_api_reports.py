@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from conftest import ADMIN_KEY, CUSTOMER_KEY
 
 H = {"X-API-Key": CUSTOMER_KEY}
@@ -29,3 +31,24 @@ def test_order_activity(client):
     assert len(out["active_periods"]) == 1
     assert out["first_active_day"] == out["last_active_day"]
     assert out["weekly_orders"][0]["orders"] == 1
+
+
+def test_order_activity_with_explicit_window(client):
+    body = {"idempotency_key": "key-00000003", "items": [{"sku": "WIDGET", "quantity": 1}]}
+    client.post("/orders", json=body, headers=H)
+    today = datetime.now(UTC).date().isoformat()
+    r = client.get(f"/reports/orders/activity?window={today}", headers=A)
+    assert r.status_code == 200
+    out = r.json()
+    assert out["orders"] == 1
+    assert out["active_days"] == 1
+
+
+def test_order_activity_with_no_orders_in_window(client):
+    r = client.get("/reports/orders/activity?days=7", headers=A)
+    assert r.status_code == 200
+    out = r.json()
+    assert out["orders"] == 0
+    assert out["active_days"] == 0
+    assert out["first_active_day"] is None
+    assert out["last_active_day"] is None
