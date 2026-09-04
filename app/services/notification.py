@@ -11,7 +11,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from app.domain.dates import utcnow
 from app.services.config import Settings, get_settings
 from app.services.retry import RetryPolicy, retry
 
@@ -122,6 +121,6 @@ class NotificationService:
                 to=email,
                 subject=f"Order {order_id} refunded",
                 body=f"We refunded {amount} to your card. Lines: {breakdown}.{note}",
-                dedupe_key=f"order-refunded:{order_id}:{utcnow().isoformat()}",
+                dedupe_key=f"order-refunded:{order_id}",
             )
         )
