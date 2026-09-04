@@ -83,9 +83,7 @@ def test_customers_index_is_built_without_blocking_writes(
     assert any(name is not None and "last_name" in name for name in names)
 
 
-def test_downgrade_removes_the_new_schema(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_downgrade_removes_the_new_schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """MG-07: rolling back the release must leave 0002 behind."""
     cfg, engine = _config(tmp_path, monkeypatch)
     command.upgrade(cfg, "head")
@@ -110,9 +108,7 @@ def test_backfill_log_foreign_key_is_indexed(
     assert any(i["column_names"][:1] == ["customer_id"] for i in indexes)
 
 
-def test_no_index_drift_against_the_models(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_no_index_drift_against_the_models(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """MG-12: autogenerate must not want to rebuild any index."""
     from app.db.models import Base
 
