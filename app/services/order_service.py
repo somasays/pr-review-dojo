@@ -10,23 +10,18 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Order, OrderItem
 from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
-from app.domain.dates import DateRange, utcnow
+from app.domain.dates import DateRange, ensure_utc, utcnow
 from app.domain.money import Money
 from app.domain.order_state import OrderStatus, is_cancellable, transition
 from app.services.notification import NotificationService
-from app.services.payments import (
-    AmountMismatch,
-    InMemoryGateway,
-    PaymentEvent,
-    PaymentGateway,
-)
+from app.services.payments import AmountMismatch, PaymentEvent, PaymentGateway
 from app.services.pricing_service import ItemRequest, PricingService
 from app.services.retry import RetryPolicy, retry
 
@@ -47,7 +42,7 @@ class OrderService:
         session: Session,
         pricing: PricingService,
         notifications: NotificationService,
-        gateway: PaymentGateway | None = None,
+        gateway: PaymentGateway,
     ) -> None:
         self.session = session
         self.orders = OrderRepository(session)
@@ -55,7 +50,7 @@ class OrderService:
         self.products = ProductRepository(session)
         self.pricing = pricing
         self.notifications = notifications
-        self.gateway = gateway or InMemoryGateway()
+        self.gateway = gateway
 
     def create(self, cmd: CreateOrderCommand) -> Order:
         existing = self.orders.by_idempotency_key(cmd.customer_id, cmd.idempotency_key)
@@ -113,15 +108,12 @@ class OrderService:
     def _capture(self, order: Order) -> None:
         """Take the money the provider authorized for this order."""
         amount = Money(order.total, order.currency)
-        try:
-            reference = retry(
-                lambda: self.gateway.charge(amount),
-                RetryPolicy(attempts=3, retry_on=(TimeoutError, ConnectionError)),
-                sleep=lambda _s: None,
-            )
-            log.info("captured %s for order %s (%s)", amount, order.id, reference)
-        except Exception as exc:
-            log.warning("capture for order %s failed: %s", order.id, exc)
+        reference = retry(
+            lambda: self.gateway.charge(amount, idempotency_key=f"order:{order.id}"),
+            RetryPolicy(attempts=3, retry_on=(TimeoutError, ConnectionError)),
+            sleep=lambda _s: None,
+        )
+        log.info("captured %s for order %s (%s)", amount, order.id, reference)
 
     def apply_payment_event(self, event: PaymentEvent) -> Order:
         """Reconcile a webhook's amount against the order, then mark it paid. Safe to replay."""
@@ -142,13 +134,13 @@ class OrderService:
 
     def created_on_day(self, now: datetime | None = None) -> Sequence[Order]:
         """Orders created on the UTC day of `now`, for the daily settlement check."""
-        day = (now or utcnow()).date()
+        day = ensure_utc(now or utcnow()).date()
         start = datetime.combine(day, time.min, tzinfo=UTC)
         return self.orders.created_between(start, start + timedelta(days=1))
 
     def weekly_digest_range(self) -> DateRange:
         """The seven days ending yesterday, for the weekly payment digest."""
-        return DateRange.last_n_days(7, today=date.today())
+        return DateRange.last_n_days(7)
 
     def mark_paid(self, order_id: int) -> Order:
         order = self.orders.get(order_id)
@@ -158,7 +150,7 @@ class OrderService:
         self._move(order, OrderStatus.PAID)
         if was_pending:
             self.notifications.order_confirmed(
-                order.customer.email, order.id, f"{float(order.total):.2f} {order.currency}"
+                order.customer.email, order.id, str(Money(order.total, order.currency))
             )
         return order
 

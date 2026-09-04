@@ -6,6 +6,7 @@ from app.domain.order_state import InvalidTransition
 from app.services.config import Settings
 from app.services.notification import InMemorySender, NotificationService
 from app.services.order_service import CreateOrderCommand, OrderService
+from app.services.payments import InMemoryGateway
 from app.services.pricing_service import InsufficientStock, ItemRequest, PricingService
 
 
@@ -16,7 +17,9 @@ def sender() -> InMemorySender:
 
 @pytest.fixture
 def service(db, sender) -> OrderService:
-    return OrderService(db, PricingService(), NotificationService(sender, Settings()))
+    return OrderService(
+        db, PricingService(), NotificationService(sender, Settings()), InMemoryGateway()
+    )
 
 
 def _cmd(customer_id: int, key: str = "key-00000001", codes: list[str] | None = None):

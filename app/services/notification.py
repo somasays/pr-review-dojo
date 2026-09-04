@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from app.services.config import Settings, get_settings, load_settings
+from app.services.config import Settings, get_settings
 from app.services.retry import RetryPolicy, retry
 
 log = logging.getLogger(__name__)
@@ -53,11 +53,7 @@ class NotificationService:
 
     def _deliver(self, message: Message) -> None:
         log.info("sending %s to %s (key=%s)", message.subject, message.to, message.dedupe_key)
-        current = load_settings()
-        policy = RetryPolicy(
-            attempts=current.notify_retries, backoff_seconds=current.notify_backoff_seconds
-        )
-        retry(lambda: self.sender.send(message), policy, sleep=lambda _s: None)
+        retry(lambda: self.sender.send(message), self.policy, sleep=lambda _s: None)
 
     def order_confirmed(self, email: str, order_id: int, total: str) -> None:
         self._deliver(

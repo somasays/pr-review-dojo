@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import hmac
 import logging
+from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, status
-from sqlalchemy import select
 
 from app.api.deps import AdminPrincipal, AppSettings, DbSession, Orders
 from app.api.schemas import OrderOut, PaymentWebhookIn
 from app.db.models import Order
-from app.db.repositories import NotFound
+from app.db.repositories import NotFound, OrderRepository
 from app.domain.order_state import InvalidTransition, OrderStatus
 from app.services.payments import AmountMismatch, PaymentEvent
 
@@ -49,9 +49,6 @@ def payment_webhook(
 
 
 @router.get("/pending-review", response_model=list[OrderOut])
-def pending_review(db: DbSession, _admin: AdminPrincipal) -> list[Order]:
+def pending_review(db: DbSession, _admin: AdminPrincipal) -> Sequence[Order]:
     """Orders still waiting on a payment webhook, for manual follow-up."""
-    stmt = (
-        select(Order).where(Order.status == OrderStatus.PENDING_PAYMENT).order_by(Order.created_at)
-    )
-    return list(db.scalars(stmt))
+    return OrderRepository(db).list_by_status(OrderStatus.PENDING_PAYMENT)

@@ -68,6 +68,15 @@ def test_webhook_event_rejects_a_different_amount(db, seeded, service, gateway):
     assert gateway.charges == []
 
 
+def test_created_on_day_includes_an_order_made_today(db, seeded, service):
+    order = _order(service, db, seeded["customer"].id, key="key-00000012")
+    assert order.id in [o.id for o in service.created_on_day()]
+
+
+def test_weekly_digest_range_covers_seven_days(service):
+    assert service.weekly_digest_range().days == 7
+
+
 def test_webhook_endpoint_requires_the_shared_secret(client, webhook_secret):
     created = client.post(
         "/orders",

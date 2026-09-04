@@ -54,11 +54,3 @@ class InMemoryGateway:
                     return f"cap_{idempotency_key}"
         self.charges.append((idempotency_key, amount))
         return f"cap_{idempotency_key or len(self.charges)}"
-
-
-GATEWAYS: dict[str, type[PaymentGateway]] = {"memory": InMemoryGateway}
-
-
-def create_gateway(kind: str = "memory") -> PaymentGateway:
-    """Build the configured gateway. Only the in-memory stub exists today."""
-    return GATEWAYS[kind]()

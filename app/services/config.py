@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from functools import lru_cache
 
 log = logging.getLogger(__name__)
@@ -31,6 +31,9 @@ def _list(name: str, default: list[str]) -> list[str]:
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
+_SECRET_FIELDS = frozenset({"admin_api_keys", "smtp_password", "payment_webhook_secret"})
+
+
 @dataclass(frozen=True)
 class Settings:
     env: str = "dev"
@@ -49,6 +52,13 @@ class Settings:
     @property
     def is_prod(self) -> bool:
         return self.env == "prod"
+
+    def __repr__(self) -> str:
+        shown = [
+            f"{f.name}={'***' if f.name in _SECRET_FIELDS else getattr(self, f.name)!r}"
+            for f in fields(self)
+        ]
+        return f"Settings({', '.join(shown)})"
 
 
 def load_settings() -> Settings:
