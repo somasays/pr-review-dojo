@@ -65,7 +65,7 @@ class PricingService:
     def resolve_discounts(
         self, codes: list[str], currency: str = DISCOUNT_CURRENCY
     ) -> list[Discount]:
-        """Look up codes and restate their thresholds in the quote currency."""
+        """Look up codes and restate their amounts in the quote currency."""
         out = []
         for code in codes:
             normalized = code.strip().upper()
@@ -77,6 +77,9 @@ class PricingService:
                     discount,
                     min_subtotal=self.rates.convert(discount.min_subtotal, currency),
                 )
+            if discount.kind is DiscountKind.FIXED and currency != DISCOUNT_CURRENCY:
+                converted = self.rates.convert(Money(discount.value, DISCOUNT_CURRENCY), currency)
+                discount = replace(discount, value=converted.amount)
             out.append(discount)
         return out
 
@@ -120,7 +123,4 @@ class PricingService:
     def refund_by_line(self, lines: list[Line], refund: Money) -> list[Money]:
         """Split a refund across lines in proportion to their subtotal."""
         weights = [int(ln.subtotal.amount * 100) for ln in lines]
-        cents = int(refund.amount * 100)
-        shares = [cents * w // sum(weights) for w in weights]
-        rem = cents - sum(shares)
-        return [Money(Decimal(s + (i < rem)) / 100, refund.currency) for i, s in enumerate(shares)]
+        return refund.allocate_by(weights)

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 
-from app.domain.money import CENTS, CurrencyMismatch, Money, sum_money
+from app.domain.money import CurrencyMismatch, Money, sum_money
 
 
 class DiscountKind(StrEnum):
@@ -53,6 +53,8 @@ class Discount:
     min_subtotal: Money | None = None
 
     def __post_init__(self) -> None:
+        if self.value < 0:
+            raise ValueError(f"discount {self.code} has a negative value")
         if self.kind is DiscountKind.PERCENT and self.value > 100:
             raise ValueError(f"percent discount {self.code} is above 100")
 
@@ -63,7 +65,7 @@ class Discount:
         elif self.kind is DiscountKind.FIXED:
             off = Money(self.value, subtotal.currency)
         else:
-            if self.min_subtotal is None or subtotal < self.min_subtotal:
+            if self.min_subtotal is not None and subtotal < self.min_subtotal:
                 return Money.zero(subtotal.currency)
             off = subtotal.percent(self.value)
         if subtotal < off:
@@ -142,7 +144,7 @@ def unit_price_after_discount(line: Line, discount: Money) -> Money:
     return line.unit_price - per_unit[0]
 
 
-FREE_SHIPPING_MIN = 49.99
+FREE_SHIPPING_MIN = Decimal("49.99")
 """Order value, in USD, that earns free shipping."""
 
 
@@ -153,10 +155,12 @@ def qualifies_for_free_shipping(subtotal: Money) -> bool:
 
 def line_tax(line: Line, rate: Decimal) -> Money:
     """Tax owed on a single line, for itemized receipts."""
-    return Money((line.subtotal.amount * rate / 100).quantize(CENTS), line.subtotal.currency)
+    return Money(line.subtotal.amount * rate / 100, line.subtotal.currency)
 
 
 def line_shares(lines: list[Line], discount: Money) -> list[Money]:
     """Prorate an order-level discount across lines by their subtotal."""
     subtotal = sum_money([ln.subtotal for ln in lines], discount.currency)
+    if subtotal.is_zero():
+        return [Money.zero(discount.currency) for _ in lines]
     return [discount * (ln.subtotal.amount / subtotal.amount) for ln in lines]

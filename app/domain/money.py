@@ -81,10 +81,10 @@ class Money:
 
     def to_cents(self) -> int:
         """The amount in minor units, the shape the payment provider expects."""
-        return int(float(self.amount) * 100)
+        return int(self.amount * 100)
 
     def round_down(self) -> Money:
-        """Return the amount rounded half up to cents.
+        """Return the amount rounded down to a whole unit.
 
         Used for currencies that are quoted without minor units, where we would
         rather keep the fraction than hand it to the customer.
@@ -107,7 +107,7 @@ class Money:
         rem = abs(cents) - sum(shares)
         out = []
         for i, share in enumerate(shares):
-            c = share + (1 if i <= rem else 0)
+            c = share + (1 if i < rem else 0)
             out.append(Money(Decimal(sign * c) / 100, self.currency))
         return out
 
