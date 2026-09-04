@@ -75,6 +75,34 @@ class Page[T](BaseModel):
     offset: int
 
 
+class DiscountCodeCreate(BaseModel):
+    code: str = Field(min_length=3, max_length=32)
+    kind: str = Field(pattern=r"^(percent|fixed|threshold)$")
+    value: Decimal = Field(gt=0)
+    min_subtotal: Decimal | None = None
+    max_redemptions: int | None = Field(default=None, gt=0)
+
+
+class DiscountCodeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    kind: str
+    value: Decimal
+    min_subtotal: Decimal | None
+    max_redemptions: int | None
+    times_redeemed: int
+    active: bool
+
+
+class DiscountUsageOut(BaseModel):
+    code: str
+    orders: int
+    units: int
+    customers: int
+    redemptions: int
+
+
 class StatusCount(BaseModel):
     status: str
     count: int

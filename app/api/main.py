@@ -7,7 +7,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.api.routers import customers, orders, reports
+from app.api.routers import customers, discounts, orders, reports
 from app.db.repositories import NotFound
 
 log = logging.getLogger(__name__)
@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 def create_app() -> FastAPI:
     app = FastAPI(title="Dojo Orders", version="0.1.0")
     app.include_router(customers.router)
+    app.include_router(discounts.router)
     app.include_router(orders.router)
     app.include_router(reports.router)
 

@@ -12,7 +12,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Customer, Order, OrderItem, Product
+from app.db.models import Customer, DiscountCode, Order, OrderItem, Product
 from app.domain.order_state import OrderStatus
 
 
@@ -126,3 +126,52 @@ class OrderRepository:
     def count_by_status(self) -> dict[str, int]:
         stmt = select(Order.status, func.count(Order.id)).group_by(Order.status)
         return {status: count for status, count in self.session.execute(stmt).all()}
+
+
+class DiscountCodeRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def by_code(self, code: str) -> DiscountCode | None:
+        return self.session.scalar(select(DiscountCode).where(DiscountCode.code == code))
+
+    def list_all(self) -> Sequence[DiscountCode]:
+        return self.session.query(DiscountCode).order_by(DiscountCode.code).all()
+
+    def add(self, discount: DiscountCode) -> DiscountCode:
+        self.session.add(discount)
+        self.session.flush()
+        return discount
+
+    def deactivate(self, code: str) -> DiscountCode:
+        row = self.by_code(code)
+        if row is None:
+            raise NotFound("discount_code", code)
+        row.active = False
+        self.session.flush()
+        # Take the code out of circulation right away; support runs this by hand
+        # when a code leaks and cannot wait for the rest of the request.
+        self.session.commit()
+        return row
+
+    def record_redemption(self, code: str) -> DiscountCode:
+        row = self.by_code(code)
+        if row is None:
+            raise NotFound("discount_code", code)
+        row.times_redeemed += 1
+        self.session.flush()
+        return row
+
+    def redeemed_orders(self, code: str) -> Sequence[Order]:
+        """Paid orders that were placed with this code, oldest first."""
+        stmt = (
+            select(Order)
+            .where(Order.discount_code == code, Order.status == "paid")
+            .order_by(Order.id)
+        )
+        return self.session.scalars(stmt).all()
+
+    def redemption_count(self, code: str) -> int:
+        """How many orders carry this code, in any status."""
+        rows = self.session.scalars(select(Order).where(Order.discount_code == code)).all()
+        return len(rows)

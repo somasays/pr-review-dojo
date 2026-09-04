@@ -76,9 +76,9 @@ def db(session_factory: sessionmaker[Session]) -> Iterator[Session]:
 
 @pytest.fixture
 def seeded(db: Session) -> dict[str, object]:
-    """One customer with an API key, three products."""
+    """One customer with an API key, three products, three discount codes."""
     from app.api.deps import hash_api_key
-    from app.db.models import Customer, Product
+    from app.db.models import Customer, DiscountCode, Product
 
     customer = Customer(
         email="ada@example.com",
@@ -91,10 +91,20 @@ def seeded(db: Session) -> dict[str, object]:
         Product(sku="GADGET", name="Gadget", unit_price=Decimal("120.00"), stock=5),
         Product(sku="GIZMO", name="Gizmo", unit_price=Decimal("0.99"), stock=0),
     ]
+    discounts = [
+        DiscountCode(code="WELCOME10", kind="percent", value=10.0),
+        DiscountCode(code="FLAT5", kind="fixed", value=5.0),
+        DiscountCode(code="BULK15", kind="threshold", value=15.0, min_subtotal=Decimal("200.00")),
+    ]
     db.add(customer)
     db.add_all(products)
+    db.add_all(discounts)
     db.commit()
-    return {"customer": customer, "products": {p.sku: p for p in products}}
+    return {
+        "customer": customer,
+        "products": {p.sku: p for p in products},
+        "discounts": {d.code: d for d in discounts},
+    }
 
 
 @pytest.fixture
