@@ -55,7 +55,7 @@ def read_daily(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataFr
 
 def read_customers(spark: SparkSession, paths: LakePaths) -> DataFrame:
     """Read the customers dimension. One row per customer."""
-    return spark.read.schema(CUSTOMERS_SCHEMA).parquet(f"{paths.root}/customers")
+    return spark.read.schema(CUSTOMERS_SCHEMA).parquet(paths.customers)
 
 
 def roll_up_weeks(daily: DataFrame) -> DataFrame:
@@ -89,7 +89,7 @@ def weekly_summary(spark: SparkSession, paths: LakePaths, days: DateRange) -> Da
 def write_weekly(df: DataFrame, paths: LakePaths) -> None:
     # Dynamic partition overwrite: only the weeks present in df are replaced.
     df.repartition("week_start").write.mode("overwrite").partitionBy("week_start").parquet(
-        f"{paths.root}/weekly_customer_summary"
+        paths.weekly_customer_summary
     )
 
 

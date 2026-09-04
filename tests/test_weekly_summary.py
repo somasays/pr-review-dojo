@@ -43,7 +43,7 @@ def test_weekly_summary_rolls_daily_rows_into_weeks(spark, lake):
 def test_run_writes_one_partition_per_week(spark, lake):
     paths = _warehouse(spark, lake)
     run(spark, paths, RANGE)
-    written = spark.read.parquet(f"{lake}/weekly_customer_summary")
+    written = spark.read.parquet(paths.weekly_customer_summary)
     assert {r.week_start for r in written.select("week_start").distinct().collect()} == {
         "2026-07-27",
         "2026-08-03",
