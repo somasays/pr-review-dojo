@@ -8,14 +8,19 @@ the order is already in the target state.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Order, OrderItem
-from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
+from app.db.repositories import (
+    CustomerRepository,
+    NotFound,
+    OrderRepository,
+    ProductRepository,
+)
 from app.domain.money import Money
 from app.domain.order_state import InvalidTransition, OrderStatus, is_cancellable, transition
 from app.services.notification import NotificationService
@@ -40,6 +45,12 @@ class CreateOrderCommand:
     idempotency_key: str
     items: list[ItemRequest]
     discount_codes: list[str]
+
+
+@dataclass(frozen=True)
+class FulfillmentJob:
+    order_id: int
+    tracking_number: str
 
 
 class OrderService:
@@ -79,9 +90,6 @@ class OrderService:
             total=q.total.amount,
             discount_code=q.applied_codes[0] if q.applied_codes else None,
         )
-        if q.total.is_zero():
-            # Nothing to charge, so the customer hears from us straight away.
-            self.notifications.order_confirmed(customer.email, order.id, str(q.total))
         items = [
             OrderItem(
                 product_id=products[i.sku].id,
@@ -104,6 +112,9 @@ class OrderService:
             winner = self.orders.by_idempotency_key(cmd.customer_id, cmd.idempotency_key)
             assert winner is not None
             return winner
+        if q.total.is_zero():
+            # Nothing to charge, so the customer hears from us straight away.
+            self.notifications.order_confirmed(customer.email, order.id, str(q.total))
         return order
 
     def _move(self, order: Order, target: OrderStatus) -> Order:
@@ -114,26 +125,42 @@ class OrderService:
         self.session.flush()
         return order
 
+    def _move_once(
+        self,
+        order: Order,
+        expected: OrderStatus,
+        target: OrderStatus,
+        notify: Callable[[Order], None],
+    ) -> Order:
+        """Move `order` to `target` and notify only the first time it leaves `expected`."""
+        was_expected = order.status == expected
+        self._move(order, target)
+        if was_expected:
+            notify(order)
+        return order
+
     def mark_paid(self, order_id: int) -> Order:
         order = self.orders.get(order_id)
-        was_pending = order.status == OrderStatus.PENDING_PAYMENT
-        self._move(order, OrderStatus.PAID)
-        if was_pending:
-            self.notifications.order_confirmed(
-                order.customer.email, order.id, f"{float(order.total):.2f}"
-            )
-        return order
+        return self._move_once(
+            order,
+            OrderStatus.PENDING_PAYMENT,
+            OrderStatus.PAID,
+            lambda o: self.notifications.order_confirmed(o.customer.email, o.id, str(o.total)),
+        )
 
     def ship(self, order_id: int, tracking_number: str | None = None) -> Order:
         order = self.orders.get(order_id)
-        for item in order.items:
+        catalog = self.products.by_skus([item.sku for item in order.items])
+        missing = [item.sku for item in order.items if item.sku not in catalog]
+        if missing:
             # A product pulled from the catalog after the order was placed cannot ship.
-            self.products.get(item.product_id)
-        was_paid = order.status == OrderStatus.PAID
-        self._move(order, OrderStatus.SHIPPED)
-        if was_paid:
-            self.notifications.order_shipped(order.customer.email, order.id, tracking_number)
-        return order
+            raise NotFound("product", missing[0])
+        return self._move_once(
+            order,
+            OrderStatus.PAID,
+            OrderStatus.SHIPPED,
+            lambda o: self.notifications.order_shipped(o.customer.email, o.id, tracking_number),
+        )
 
     def deliver(self, order_id: int) -> Order:
         return self._move(self.orders.get(order_id), OrderStatus.DELIVERED)
@@ -166,7 +193,6 @@ class OrderService:
         if OrderStatus(order.status) not in (OrderStatus.PENDING_PAYMENT, OrderStatus.PAID):
             raise InvalidTransition(OrderStatus(order.status), OrderStatus.SHIPPED)
 
-        self.products.reserve(order.items)
         charge_id: str | None = None
         try:
             amount = Money(order.total, order.currency)
@@ -183,25 +209,27 @@ class OrderService:
         return order
 
     def _compensate(self, order: Order, charge_id: str | None) -> None:
+        if not is_cancellable(OrderStatus(order.status)):
+            log.error(
+                "order %s reached %s before failing, compensation needs a human",
+                order.id,
+                order.status,
+            )
+            return
         if charge_id is not None:
             self.gateway.refund(charge_id, f"refund:{order.id}")
         self.products.release(order.items)
-        try:
-            self._move(order, OrderStatus.CANCELLED)
-        except InvalidTransition as exc:
-            log.info("order %s was not moved to cancelled: %s", order.id, exc)
-        # Put the stock back on the storefront now, even when the email gateway is down.
-        self.session.commit()
+        self._move(order, OrderStatus.CANCELLED)
         self.notifications.order_cancelled(order.customer.email, order.id)
 
-    def fulfill_batch(self, jobs: Sequence[tuple[int, str]]) -> list[Order]:
+    def fulfill_batch(self, jobs: Sequence[FulfillmentJob]) -> list[Order]:
         """Fulfill several orders and tell the warehouse which ones went out."""
         shipped: list[Order] = []
-        for order_id, tracking_number in jobs:
+        for job in jobs:
             try:
-                shipped.append(self.fulfill(order_id, tracking_number))
+                shipped.append(self.fulfill(job.order_id, job.tracking_number))
             except FulfillmentFailed as exc:
-                log.warning("skipping order %s: %s", order_id, exc)
+                log.warning("skipping order %s: %s", job.order_id, exc)
         if shipped:
             self.notifications.warehouse_digest([o.id for o in shipped])
         log.info("fulfilled %d of %d orders", len(shipped), len(jobs))

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from app.services.config import Settings, get_settings
-from app.services.retry import RetryPolicy, retry
+from app.services.retry import RetryExhausted, RetryPolicy, retry
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +32,12 @@ class Message:
 
 class Sender(Protocol):
     def send(self, message: Message) -> None: ...
+
+
+def format_shipped_body(tracking_number: str | None) -> str:
+    if tracking_number:
+        return f"Your order is on the way. Tracking number: {tracking_number}."
+    return "Your order is on the way."
 
 
 @dataclass
@@ -54,24 +60,20 @@ class NotificationService:
         settings = settings or get_settings()
         self.warehouse_email = settings.warehouse_email
         self.policy = RetryPolicy(
-            attempts=settings.notify_retries,
-            backoff_seconds=settings.notify_backoff_seconds,
-            # The gateway client wraps transport problems in its own error classes.
-            retry_on=(Exception,),
+            attempts=settings.notify_retries, backoff_seconds=settings.notify_backoff_seconds
         )
 
     def _deliver(self, message: Message) -> None:
         log.info("sending %s to %s (key=%s)", message.subject, message.to, message.dedupe_key)
         try:
             retry(lambda: self.sender.send(message), self.policy, sleep=lambda _s: None)
-        except Exception:
-            raise NotificationError(f"could not send {message.subject}")
+        except RetryExhausted as exc:
+            raise NotificationError(f"could not send {message.subject}") from exc
 
     def send_many(self, messages: list[Message]) -> None:
         """Hand a batch of messages to the gateway."""
-        if not messages:
-            return
-        retry(lambda: [self.sender.send(m) for m in messages], self.policy, sleep=lambda _s: None)
+        for message in messages:
+            self._deliver(message)
 
     def order_confirmed(self, email: str, order_id: int, total: str) -> None:
         self._deliver(
@@ -84,14 +86,11 @@ class NotificationService:
         )
 
     def order_shipped(self, email: str, order_id: int, tracking_number: str | None = None) -> None:
-        body = "Your order is on the way."
-        if tracking_number:
-            body = f"Your order is on the way. Tracking number: {tracking_number}."
         self._deliver(
             Message(
                 to=email,
                 subject=f"Order {order_id} shipped",
-                body=body,
+                body=format_shipped_body(tracking_number),
                 dedupe_key=f"order-shipped:{order_id}",
             )
         )

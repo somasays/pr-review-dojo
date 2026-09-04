@@ -2,7 +2,7 @@ import pytest
 
 from app.services.config import Settings
 from app.services.notification import InMemorySender, NotificationService
-from app.services.order_service import CreateOrderCommand, OrderService
+from app.services.order_service import CreateOrderCommand, FulfillmentJob, OrderService
 from app.services.payment import InMemoryGateway
 from app.services.pricing_service import ItemRequest, PricingService
 
@@ -65,7 +65,9 @@ def test_fulfill_batch_reports_the_shipped_orders_to_the_warehouse(db, seeded, s
     second = service.create(_cmd(customer_id, key="key-00000012"))
     db.commit()
 
-    shipped = service.fulfill_batch([(first.id, "TRACK-3"), (second.id, "TRACK-4")])
+    shipped = service.fulfill_batch(
+        [FulfillmentJob(first.id, "TRACK-3"), FulfillmentJob(second.id, "TRACK-4")]
+    )
 
     assert [o.id for o in shipped] == [first.id, second.id]
     digest = [m.dedupe_key for m in sender.sent if m.dedupe_key.startswith("warehouse-digest:")]

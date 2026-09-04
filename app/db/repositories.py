@@ -65,12 +65,6 @@ class ProductRepository:
         rows = self.session.scalars(select(Product).where(Product.sku.in_(skus))).all()
         return {p.sku: p for p in rows}
 
-    def reserve(self, items: Sequence[OrderItem]) -> None:
-        """Take the ordered quantities off the shelf."""
-        for item in items:
-            item.product.stock -= item.quantity
-        self.session.flush()
-
     def release(self, items: Sequence[OrderItem]) -> None:
         """Put the ordered quantities back on the shelf."""
         for item in items:

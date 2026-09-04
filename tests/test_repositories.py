@@ -6,6 +6,10 @@ import pytest
 from app.db.models import Order, OrderItem
 from app.db.repositories import CustomerRepository, NotFound, OrderRepository, ProductRepository
 from app.domain.order_state import OrderStatus
+from app.services.config import Settings
+from app.services.notification import InMemorySender, NotificationService
+from app.services.order_service import CreateOrderCommand, OrderService
+from app.services.pricing_service import ItemRequest, PricingService
 
 
 def _order(customer_id: int, key: str, status: str = "paid", total: str = "10.00") -> Order:
@@ -60,6 +64,23 @@ def test_list_for_customer_is_newest_first_and_paged(db, seeded):
     db.commit()
     page = repo.list_for_customer(c.id, limit=2, offset=1)
     assert [o.idempotency_key for o in page] == ["key-00000003", "key-00000002"]
+
+
+def test_release_returns_stock_to_the_shelf(db, seeded):
+    service = OrderService(db, PricingService(), NotificationService(InMemorySender(), Settings()))
+    order = service.create(
+        CreateOrderCommand(
+            customer_id=seeded["customer"].id,
+            idempotency_key="key-00000099",
+            items=[ItemRequest("GADGET", 1)],
+            discount_codes=[],
+        )
+    )
+    db.commit()
+
+    ProductRepository(db).release(order.items)
+
+    assert seeded["products"]["GADGET"].stock == 5
 
 
 def test_count_by_status_and_created_between(db, seeded):
