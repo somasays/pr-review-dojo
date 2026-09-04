@@ -81,6 +81,7 @@ All settings are read once from the environment by `app.services.config`.
 | `APP_ENV` | `dev` | `prod` forbids SQLite |
 | `DATABASE_URL` | `sqlite:///./dojo.db` | SQLAlchemy URL |
 | `ADMIN_API_KEYS` | empty | comma-separated admin keys |
+| `PAYMENT_WEBHOOK_SECRET` | empty | shared secret on the provider webhook |
 | `NOTIFY_RETRIES` | `3` | send attempts |
 | `WORKER_CONCURRENCY` | `4` | async worker bound |
 | `DATA_LAKE_ROOT` | `./data` | parquet root |
