@@ -114,3 +114,17 @@ def test_refund_lines_cover_every_item(db, seeded, service):
     lines = service.refund_lines(order.id)
     assert [sku for sku, _ in lines] == ["WIDGET", "GADGET"]
     assert str(lines[1][1]) == "112.00 USD"
+
+
+def test_flag_large_refund_only_above_the_threshold(db, seeded, service):
+    c = seeded["customer"]
+    order = service.create(_cmd(c.id, key="key-00000006"))
+    order.total = Decimal("50")
+    db.commit()
+    assert service.flag_large_refund(order.id) is None
+
+    order.total = Decimal("5000")
+    db.commit()
+    row = service.flag_large_refund(order.id)
+    assert row is not None
+    assert "5000" in row

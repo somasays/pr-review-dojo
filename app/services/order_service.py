@@ -7,8 +7,11 @@ the order is already in the target state.
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 from dataclasses import dataclass
+from decimal import Decimal
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,6 +24,8 @@ from app.services.notification import NotificationService
 from app.services.pricing_service import ItemRequest, PricingService
 
 log = logging.getLogger(__name__)
+
+LARGE_REFUND_THRESHOLD = Decimal("500")
 
 
 @dataclass(frozen=True)
@@ -140,7 +145,9 @@ class OrderService:
             lines.append((item.sku, line_total - share))
         return lines
 
-    def refund(self, order_id: int, reason: str | None = None) -> Order:
+    def refund(
+        self, order_id: int, reason: str | None = None, notify_support: bool = True
+    ) -> Order:
         """Refund a paid or delivered order, put the stock back, and email the customer."""
         order = self.orders.get(order_id)
         current = OrderStatus(order.status)
@@ -161,4 +168,21 @@ class OrderService:
             breakdown,
             reason=reason,
         )
+        if notify_support:
+            self.flag_large_refund(order.id, reason)
         return order
+
+    def flag_large_refund(self, order_id: int, reason: str | None = None) -> str | None:
+        """Support wants a CSV line for anything over the threshold, to paste into
+        the refund spreadsheet."""
+        order = self.orders.get(order_id)
+        if order.total < LARGE_REFUND_THRESHOLD:
+            return None
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([order.id, order.customer.email, str(order.total), reason or ""])
+        for sku, amount in self.refund_lines(order_id):
+            writer.writerow([order.id, sku, str(amount)])
+        row = buf.getvalue()
+        self.notifications.notify_support_of_large_refund(order.id, row)
+        return row

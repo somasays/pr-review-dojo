@@ -93,6 +93,21 @@ class NotificationService:
             )
         )
 
+    def notify_support_of_large_refund(self, order_id: int, csv_row: str) -> None:
+        message = Message(
+            to="support@example.com",
+            subject=f"Large refund on order {order_id}",
+            body=csv_row,
+            dedupe_key=f"support-refund:{order_id}",
+        )
+        for attempt in range(3):
+            try:
+                self.sender.send(message)
+                return
+            except Exception:
+                continue
+        raise NotificationError(f"could not alert support for order {order_id}")
+
     def order_refunded(
         self,
         email: str,
