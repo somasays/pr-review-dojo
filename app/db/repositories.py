@@ -9,10 +9,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import bindparam, func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import Customer, Order, OrderItem, Product
+from app.db.models import Customer, CustomerAddress, Order, OrderItem, Product
 from app.domain.order_state import OrderStatus
 
 
@@ -42,6 +43,78 @@ class CustomerRepository:
     def list(self, limit: int = 50, offset: int = 0) -> Sequence[Customer]:
         stmt = select(Customer).order_by(Customer.id).limit(limit).offset(offset)
         return self.session.scalars(stmt).all()
+
+    def search(
+        self,
+        prefix: str,
+        regions: Sequence[str],
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[Customer]:
+        """One page of customers whose name starts with `prefix`, within `regions`.
+
+        Ordered by name so the admin console can show the page alphabetically.
+        """
+        stmt = (
+            select(Customer)
+            .where(Customer.name.startswith(prefix))
+            .where(Customer.region.in_(regions))
+            .order_by(Customer.name, Customer.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        return self.session.scalars(stmt).all()
+
+    def search_count(self, prefix: str, regions: Sequence[str]) -> int:
+        """How many customers `search` would match if it were not paginated."""
+        sql = "SELECT COUNT(*) FROM customers WHERE name LIKE :pattern"
+        params: dict[str, object] = {"pattern": f"{prefix}%"}
+        stmt = text(sql)
+        if regions:
+            stmt = text(sql + " AND region IN :regions").bindparams(
+                bindparam("regions", expanding=True)
+            )
+            params["regions"] = list(regions)
+        total = self.session.execute(stmt, params).scalar_one()
+        return int(total)
+
+    def first_match(self, prefix: str) -> Customer:
+        """Return the lowest-id customer whose name starts with `prefix`, or None."""
+        row = (
+            self.session.query(Customer)
+            .filter(Customer.name.startswith(prefix))
+            .order_by(Customer.id)
+            .first()
+        )
+        if row is None:
+            raise NotFound("customer", prefix)
+        return row
+
+    def get_default_address(self, customer_id: int, address: CustomerAddress) -> CustomerAddress:
+        """Add `address` for the customer and make it the default shipping address."""
+        current = self.session.scalar(
+            select(CustomerAddress).where(
+                CustomerAddress.customer_id == customer_id, CustomerAddress.is_default.is_(True)
+            )
+        )
+        if current is not None:
+            current.is_default = False
+        address.customer_id = customer_id
+        address.is_default = True
+        self.session.add(address)
+        self.session.flush()
+        return address
+
+    def import_many(self, customers: Sequence[Customer]) -> list[str]:
+        """Add each customer, skipping duplicate emails. Returns the skipped emails."""
+        skipped: list[str] = []
+        for customer in customers:
+            self.session.add(customer)
+            try:
+                self.session.flush()
+            except IntegrityError:
+                skipped.append(customer.email)
+        return skipped
 
     def add(self, customer: Customer) -> Customer:
         self.session.add(customer)

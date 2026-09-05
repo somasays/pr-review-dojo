@@ -6,6 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -37,6 +38,15 @@ class Customer(Base):
     )
 
     orders: Mapped[list[Order]] = relationship(back_populates="customer")
+
+
+class CustomerAddress(Base):
+    __tablename__ = "customer_addresses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
+    line1: Mapped[str] = mapped_column(String(200), nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class Product(Base):
