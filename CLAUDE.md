@@ -175,7 +175,7 @@ passed/total, and the reference fix in a collapsed `<details>` block.
 2. Never print an answer key to the terminal. If the owner asks what the
    defects are, point them at `/grade` after they submit a review.
 3. Never push to `solutions/*` branches except when creating an exercise via
-   `/exercise` or `/seed`.
+   `/exercise` or `/seed`, or updating one via `/revise`.
 4. When the owner asks a question about an exercise before it has been
    graded, answer about the codebase in general (how the base code works, how
    a Spark feature behaves, what a convention means). Do not comment on the
