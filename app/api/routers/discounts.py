@@ -3,12 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 
-from app.api.deps import AdminPrincipal, DbSession
+from app.api.deps import AdminPrincipal, AppSettings, DbSession
 from app.api.schemas import DiscountCodeCreate, DiscountCodeOut
 from app.db.models import DiscountCode
 from app.db.repositories import DiscountCodeRepository, NotFound
-from app.db.session import get_session_factory
-from app.services.config import get_settings
 
 router = APIRouter(prefix="/discounts", tags=["discounts"])
 
@@ -22,7 +20,7 @@ def _to_row(item: DiscountCodeCreate) -> DiscountCode:
     return DiscountCode(
         code=item.code.strip().upper(),
         kind=item.kind,
-        value=float(item.value),
+        value=item.value,
         min_subtotal=item.min_subtotal,
         max_redemptions=item.max_redemptions,
     )
@@ -35,28 +33,22 @@ def create_discount(
     repo = DiscountCodeRepository(db)
     if repo.by_code(body.code.strip().upper()) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "discount code already exists")
-    return repo.add(_to_row(body))
+    try:
+        with db.begin_nested():
+            return repo.add(_to_row(body))
+    except IntegrityError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, "discount code already exists") from exc
 
 
 @router.post("/import", response_model=list[str])
 def import_discounts(
-    db: DbSession, _admin: AdminPrincipal, body: list[DiscountCodeCreate], dry_run: bool = False
+    db: DbSession, _admin: AdminPrincipal, settings: AppSettings, body: list[DiscountCodeCreate]
 ) -> list[str]:
     """Bulk-load codes for a promotion; codes that already exist are skipped."""
-    if len(body) > get_settings().page_size_max:
+    if len(body) > settings.page_size_max:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "import batch too large")
-    skipped: list[str] = []
-    for item in body:
-        row = _to_row(item)
-        try:
-            with db.begin_nested():
-                db.add(row)
-                db.flush()
-        except IntegrityError:
-            skipped.append(row.code)
-    if dry_run:
-        db.rollback()
-    print("codes on file:", len(DiscountCodeRepository(get_session_factory()()).list_all()))
+    skipped = DiscountCodeRepository(db).import_many([_to_row(item) for item in body])
+    print("codes on file:", len(DiscountCodeRepository(db).list_all()))
     return skipped
 
 

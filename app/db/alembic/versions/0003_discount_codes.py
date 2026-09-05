@@ -21,7 +21,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("code", sa.String(32), nullable=False, unique=True),
         sa.Column("kind", sa.String(16), nullable=False),
-        sa.Column("value", sa.Float(), nullable=False),
+        sa.Column("value", sa.Numeric(12, 2), nullable=False),
         sa.Column("min_subtotal", sa.Numeric(12, 2), nullable=True),
         sa.Column("max_redemptions", sa.Integer(), nullable=True),
         sa.Column("times_redeemed", sa.Integer(), nullable=False, server_default="0"),

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
@@ -47,7 +46,7 @@ def to_discount(row: DiscountCode) -> Discount:
     return Discount(
         code=row.code,
         kind=DiscountKind(row.kind),
-        value=Decimal(str(row.value)),
+        value=row.value,
         min_subtotal=min_subtotal,
     )
 

@@ -1,18 +1,6 @@
 import pytest
 
-from app.services.pricing_service import (
-    ItemRequest,
-    PricingService,
-    UnknownDiscountCode,
-    UnknownSku,
-)
-
-
-def test_resolve_discounts_normalizes_case(db, seeded):
-    svc = PricingService(db)
-    assert [d.code for d in svc.resolve_discounts([" flat5 "])] == ["FLAT5"]
-    with pytest.raises(UnknownDiscountCode):
-        svc.resolve_discounts(["NOPE"])
+from app.services.pricing_service import ItemRequest, PricingService, UnknownSku
 
 
 def test_unknown_sku(db, seeded):

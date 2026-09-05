@@ -30,8 +30,7 @@ def test_admin_can_list_create_and_deactivate_codes(client):
     assert client.post("/discounts/spring20/deactivate", headers=A).json()["active"] is False
 
 
-def test_import_adds_a_batch_of_new_codes(client, session_factory, monkeypatch):
-    monkeypatch.setattr("app.api.routers.discounts.get_session_factory", lambda: session_factory)
+def test_import_adds_a_batch_of_new_codes(client):
     body = [{"code": "autumn10", "kind": "percent", "value": "10"}]
     resp = client.post("/discounts/import", json=body, headers=A)
     assert resp.status_code == 200 and resp.json() == []

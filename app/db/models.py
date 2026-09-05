@@ -8,7 +8,6 @@ from decimal import Decimal
 from sqlalchemy import (
     Boolean,
     DateTime,
-    Float,
     ForeignKey,
     Index,
     Integer,
@@ -104,7 +103,7 @@ class DiscountCode(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
-    value: Mapped[float] = mapped_column(Float, nullable=False)
+    value: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     min_subtotal: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     max_redemptions: Mapped[int | None] = mapped_column(Integer, nullable=True)
     times_redeemed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

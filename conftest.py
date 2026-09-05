@@ -92,9 +92,11 @@ def seeded(db: Session) -> dict[str, object]:
         Product(sku="GIZMO", name="Gizmo", unit_price=Decimal("0.99"), stock=0),
     ]
     discounts = [
-        DiscountCode(code="WELCOME10", kind="percent", value=10.0),
-        DiscountCode(code="FLAT5", kind="fixed", value=5.0),
-        DiscountCode(code="BULK15", kind="threshold", value=15.0, min_subtotal=Decimal("200.00")),
+        DiscountCode(code="WELCOME10", kind="percent", value=Decimal("10")),
+        DiscountCode(code="FLAT5", kind="fixed", value=Decimal("5")),
+        DiscountCode(
+            code="BULK15", kind="threshold", value=Decimal("15"), min_subtotal=Decimal("200.00")
+        ),
     ]
     db.add(customer)
     db.add_all(products)

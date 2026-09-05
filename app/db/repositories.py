@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Customer, DiscountCode, Order, OrderItem, Product
@@ -159,3 +160,15 @@ class DiscountCodeRepository:
         row.times_redeemed += 1
         self.session.flush()
         return row
+
+    def import_many(self, rows: Sequence[DiscountCode]) -> list[str]:
+        """Add a batch of new codes, skipping ones that already exist."""
+        skipped: list[str] = []
+        for row in rows:
+            try:
+                with self.session.begin_nested():
+                    self.session.add(row)
+                    self.session.flush()
+            except IntegrityError:
+                skipped.append(row.code)
+        return skipped

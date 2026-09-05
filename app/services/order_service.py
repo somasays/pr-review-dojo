@@ -60,12 +60,6 @@ class OrderService:
         products = self.products.by_skus([i.sku for i in cmd.items])
         q = self.pricing.quote(cmd.items, products, cmd.discount_codes, customer.region)
 
-        if q.applied_codes:
-            self.discounts.record_redemption(q.applied_codes[0])
-            # Persist the redemption before building the order so a concurrent
-            # create cannot spend the same remaining redemption.
-            self.session.commit()
-
         order = Order(
             customer_id=customer.id,
             idempotency_key=cmd.idempotency_key,
@@ -91,6 +85,8 @@ class OrderService:
 
         try:
             with self.session.begin_nested():
+                if q.applied_codes:
+                    self.discounts.record_redemption(q.applied_codes[0])
                 self.orders.add(order, items)
         except IntegrityError:
             # Lost a race with a concurrent request using the same key.
