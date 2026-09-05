@@ -6,7 +6,8 @@ Mode: teach. Domain: spark_batch. Difficulty: easy.
 - Rewrite PR: https://github.com/somasays/pr-review-dojo/pull/27
 - Feature: `app/jobs/weekly_summary.py` rolls `daily_customer_orders` up to one
   row per customer per week, joins a new `customers` dimension for the region,
-  and writes `weekly_customer_summary` partitioned by `week_start`.
+  writes `weekly_customer_summary` partitioned by `week_start`, and adds a
+  `--backfill` mode that runs one completed week at a time.
 
 Read the exercise PR with its inline comments first, then the rewrite PR with
 its per-hunk commentary, then this file.
@@ -151,6 +152,56 @@ on other teams rather than this one. The `count()`, the paths and the names
 are all real and none of them should hold up a merge on their own. Say so
 explicitly in the summary: a review that lists six problems without ranking
 them makes the author guess, and they will guess wrong.
+
+## Design and tests
+
+The `--backfill` addition (`is_current_week` and `backfill_weeks`, near the
+bottom of the module) carries three smaller findings of its own. None of them
+break anything today; a strong reviewer still flags them because they are the
+kind of thing that gets worse, not better, the next time this code changes.
+
+- **The chunking loop reimplements `DateRange.split` (design, Minor).** The
+  tell is structural, not behavioral: a `while cur <= days.end` loop that
+  appends `DateRange` chunks to a list is, line for line, what
+  `DateRange.split(chunk_days)` already does in `app/domain/dates.py`, one
+  file away. A reviewer who has read that module recognizes the shape on
+  sight, the `min(cur + timedelta(...), end)`, the `cur = chunk_end +
+  timedelta(days=1)`, and reaches for "why not call the helper" before
+  reading the loop body closely. The fix is one line: `for chunk in
+  days.split(7):`.
+- **`is_current_week` reads the clock inside pure logic (design, Minor).**
+  The tell is a small, apparently pure function that produces a day-dependent
+  answer without taking a day as input. Grepping `date.today()` and
+  `datetime.now()` in any new module is a habit worth having; every other
+  date helper in this codebase that needs "now" takes it as an optional
+  parameter (`DateRange.last_n_days` is the model), so a bare clock call
+  inside a function that looks pure is the exception, not the rule, and it
+  is the reason the shipped test below cannot pin a boundary.
+- **The shipped test for `is_current_week` inherits the same clock (test,
+  Minor).** Once you have spotted the clock inside the function, the next
+  question is whether the test pinned it. This one calls `date.today()`
+  itself, so the assertion is really "today equals today" and "seven days
+  ago is not today," which can never catch a wrong comparison and can never
+  exercise a day near the actual boundary of a week.
+- **`backfill_weeks`'s boolean flag switches two behaviors (refactor,
+  Minor).** `include_current_week: bool = False` is the boolean-parameter
+  pattern: a function whose true and false paths are different behaviors
+  rather than variations on one. Not blocking, since there is exactly one
+  call site today, but a reviewer flags it because the next requirement
+  (a `--dry-run` flag, say) makes the branching worse rather than better,
+  and the fix, dropping the flag and calling `run` directly for the
+  in-progress week, is smaller now than it will ever be again.
+
+Two interviewer questions:
+
+1. The reference fix drops the boolean flag entirely rather than keeping it
+   and only fixing the clock. What usage pattern would make keeping the flag
+   the better call, and what would you want to see in the PR description
+   before agreeing to it?
+2. `is_current_week` now takes `today` as an optional parameter that
+   defaults to the real clock when the caller omits it. Where else in this
+   module would you expect that same pattern to matter, and is there a
+   function here where it would be overkill?
 
 ## Five questions an interviewer would ask about the rewrite
 
