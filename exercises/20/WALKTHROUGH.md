@@ -174,6 +174,45 @@ alongside everything else, and the denominators stay different. Preserving
 something you were suspicious of, on purpose, and saying so in the PR
 description, is the part of a rewrite that is hardest to fake.
 
+## Design and tests
+
+A strong reviewer does not treat the four smells and the test gap as separate
+passes. They fall out of the same read.
+
+- **RW-15, the god function.** Noticed at the test, not the code: the shipped
+  test has to pass `dry_run=True` to get a DataFrame back without writing
+  files. A flag standing in for a missing function boundary is visible before
+  you have read a single line of `enrich`'s body.
+- **RW-04, the withColumn chain.** Noticed by counting: four facts go in
+  (paid, large, hour, count), and eight-plus columns come out before the
+  `groupBy`, every one dead by the `drop` on line 87. A chain whose output the
+  function throws away is a chain doing work nobody asked for.
+- **RW-06, the boolean flags.** Noticed by writing the call a caller would
+  actually write: `enrich(spark, paths, "2026-08-01", "2026-08-01",
+  backfill=True)` silently ignores the two dates right next to it. The
+  signature does not warn you, which is the finding.
+- **RW-08, the raw root string.** Noticed by grep: `daily_orders.py` already
+  has a `LakePaths` property for the sibling table, so a second `f"{root}/..."`
+  a few lines away in a sibling file is a path being invented instead of
+  reused.
+- **TR-03, the boundary skipped.** Noticed by locating the one number the
+  feature introduces, `LARGE_ORDER_TOTAL = Decimal("50.00")`, and then
+  checking whether any test uses that exact value. `test_large_order_flag`
+  uses 49.00 and 51.00, a dollar either side, so a reviewer can state the
+  consequence precisely: flip `>=` to `>` in the job and the whole suite
+  still passes. That is the difference between "add more tests" and a comment
+  that names what a mutation would get away with.
+
+Two interviewer questions about these findings:
+
+1. `test_large_order_flag` is a new test, not an old one that grew stale. Why
+   would a careful author write a threshold test and still miss the threshold
+   value, and what habit would catch this at review time rather than at
+   incident time?
+2. Of the four smells, which one would you insist on before merge and which
+   would you let ship and follow up on, and what changes your answer, the
+   size of the team or the size of the file?
+
 ## Questions to ask the author
 
 - `tests/test_daily_enrichment.py` uses `dry_run=True` to get the numbers
