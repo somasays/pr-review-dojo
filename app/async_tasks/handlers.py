@@ -19,8 +19,8 @@ from app.db.repositories import OrderRepository
 from app.db.session import session_scope
 from app.domain.order_state import OrderStatus
 from app.services.notification import (
+    AsyncSender,
     BatchNotifier,
-    LoggingAsyncSender,
     Message,
     confirmation_message,
 )
@@ -72,7 +72,7 @@ async def check_gateway_health(payload: dict[str, Any]) -> None:
     metrics.append(("gateway_status", response.status_code))
 
 
-async def resend_failed(order_ids: list[int], *, dry_run: bool = False) -> str:
+async def resend_failed(order_ids: list[int], sender: AsyncSender, *, dry_run: bool = False) -> str:
     """Resend confirmations for orders whose batch send did not go out.
 
     With dry_run, lists what would be sent without contacting the gateway.
@@ -84,7 +84,7 @@ async def resend_failed(order_ids: list[int], *, dry_run: bool = False) -> str:
         for message in messages:
             lines.append(f"{message.dedupe_key},{message.to}")
         return "\n".join(lines)
-    notifier = BatchNotifier(LoggingAsyncSender())
+    notifier = BatchNotifier(sender)
     results = await notifier.send_batch(messages)
     for message in results:
         if isinstance(message, Message):
