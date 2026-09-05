@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pyspark.sql.types import (
+    DateType,
     DecimalType,
     IntegerType,
     StringType,
@@ -34,12 +35,23 @@ ORDER_EVENTS_SCHEMA = StructType(
     ]
 )
 
+CUSTOMERS_SCHEMA = StructType(
+    [
+        StructField("customer_id", IntegerType(), False),
+        StructField("email", StringType(), False),
+        StructField("name", StringType(), False),
+        StructField("region", StringType(), False),
+        StructField("effective_date", DateType(), False),
+    ]
+)
+
 DAILY_CUSTOMER_SCHEMA = StructType(
     [
         StructField("customer_id", IntegerType(), False),
         StructField("order_count", IntegerType(), False),
         StructField("paid_total", DecimalType(14, 2), False),
         StructField("cancelled_count", IntegerType(), False),
+        StructField("region", StringType(), False),
         StructField("dt", StringType(), False),
     ]
 )
