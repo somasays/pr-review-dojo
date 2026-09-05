@@ -29,6 +29,9 @@ by `dt` (a `YYYY-MM-DD` string, always a string, never inferred as a date):
 The streaming job reads newline-delimited JSON events from a directory (a
 stand-in for the Kafka topic) and writes `orders_latest`, keyed by `order_id`.
 Every `foreachBatch` write is a full merge, so replaying a batch is safe.
+Lines that fail to parse go to `orders_dead_letter`, partitioned by the
+micro-batch that rejected them, and `orders_status_counts` holds an hourly
+count of events by status for the ops dashboard.
 
 ## Conventions
 

@@ -43,7 +43,9 @@ def write_orders_fixture(spark: SparkSession, root: str, days: int = 3) -> str:
     return path
 
 
-def write_events_fixture(source_dir: str, with_duplicate: bool = True) -> None:
+def write_events_fixture(
+    source_dir: str, with_duplicate: bool = True, with_malformed: bool = False
+) -> None:
     os.makedirs(source_dir, exist_ok=True)
     base = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
     events = [
@@ -74,6 +76,10 @@ def write_events_fixture(source_dir: str, with_duplicate: bool = True) -> None:
     ]
     if with_duplicate:
         events.append(dict(events[1]))
+    lines = [json.dumps(e) for e in events]
+    if with_malformed:
+        # A producer that died mid-line leaves a truncated record behind.
+        lines.append('{"event_id": "e4", "order_id": 4, "status": "shi')
     with open(f"{source_dir}/events-0001.json", "w") as f:
-        for e in events:
-            f.write(json.dumps(e) + "\n")
+        for line in lines:
+            f.write(line + "\n")
