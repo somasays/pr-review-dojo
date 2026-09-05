@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams
-from app.api.schemas import OrderCreate, OrderOut, Page
-from app.db.models import Order
+from app.api.schemas import OrderCreate, OrderEventOut, OrderOut, Page
+from app.db.models import Order, OrderEvent
 from app.db.repositories import NotFound, OrderRepository
 from app.domain.order_state import InvalidTransition
 from app.services.order_service import CreateOrderCommand
@@ -51,6 +51,21 @@ def get_order(order_id: int, db: DbSession, principal: CurrentPrincipal) -> Orde
         return repo.get_for_customer(order_id, principal.customer)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
+
+
+@router.get("/{order_id}/events", response_model=list[OrderEventOut])
+def list_order_events(
+    order_id: int, db: DbSession, principal: CurrentPrincipal, service: Orders
+) -> list[OrderEvent]:
+    repo = OrderRepository(db)
+    try:
+        if principal.is_admin:
+            repo.get(order_id)
+        else:
+            repo.get_for_customer(order_id, principal.customer)
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
+    return service.history(order_id)
 
 
 @router.post("/{order_id}/cancel", response_model=OrderOut)
