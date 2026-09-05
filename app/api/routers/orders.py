@@ -6,7 +6,7 @@ from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, Pa
 from app.api.schemas import OrderCreate, OrderNoteIn, OrderOut, Page
 from app.db.models import Order
 from app.db.repositories import NotFound, OrderRepository
-from app.domain.order_state import InvalidTransition, OrderStatus, is_terminal, transition
+from app.domain.order_state import InvalidTransition
 from app.services.order_service import CreateOrderCommand
 from app.services.pricing_service import (
     InsufficientStock,
@@ -55,28 +55,23 @@ def get_order(order_id: int, db: DbSession, principal: CurrentPrincipal) -> Orde
 
 @router.patch("/{order_id}/notes", response_model=OrderOut)
 def add_order_note(
-    order_id: int, note: OrderNoteIn, db: DbSession, principal: CurrentPrincipal
+    order_id: int, note: OrderNoteIn, db: DbSession, principal: CurrentPrincipal, service: Orders
 ) -> Order:
     """Attach a free-text note to an order.
 
     Returns the order with the new note attached.
     """
-    repo = OrderRepository(db)
     try:
         if principal.is_admin:
-            order = repo.get(order_id)
+            OrderRepository(db).get(order_id)
         else:
-            order = repo.get_for_customer(order_id, principal.customer)
-        if is_terminal(OrderStatus(order.status)):
-            # Let the state machine raise the descriptive error.
-            transition(OrderStatus(order.status), OrderStatus(order.status))
+            OrderRepository(db).get_for_customer(order_id, principal.customer)
+        author = "admin" if principal.is_admin else f"customer:{principal.customer}"
+        return service.add_note(order_id, note.body, author)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
     except InvalidTransition as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    author = "admin" if principal.is_admin else f"customer:{principal.customer}"
-    repo.add_note(order, note.body, author)
-    return order
 
 
 @router.post("/{order_id}/cancel", response_model=OrderOut)
