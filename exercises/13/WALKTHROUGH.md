@@ -13,42 +13,51 @@ A streaming diff is not read top to bottom. The question that orders it is
 "what runs, how often, and what happens when it runs twice". So:
 
 1. **`main` first.** It tells you how many queries now exist, what each one
-   writes, and which checkpoint each one uses. Two queries on one source with
-   two checkpoints and two targets is the shape you are about to review. If
-   the same checkpoint had been handed to both, nothing else in the diff
-   would matter, so check that before reading any Spark code.
+   writes, and which checkpoint each one uses. Three queries on one source
+   with three checkpoints and three targets is the shape you are about to
+   review. If any two shared a checkpoint, nothing else in the diff would
+   matter, so check that before reading any Spark code.
 2. **The new reader, side by side with the old one.** Put `read_events` and
    `paid_events` next to each other. They read the same directory, so any
    difference between them is either a deliberate decision or an accident.
-   Go line by line: schema, options, watermark, dedupe, filter.
-3. **The new `foreachBatch` function, side by side with `upsert_batch`.**
-   Same trick. `upsert_batch` is the house pattern for a sink write in this
-   repo, and its docstring says "safe to replay". Ask whether the new one is.
-4. **The writer chains.** Trigger, checkpoint option, query name.
+   Here they match line for line except for the status filter, which is the
+   right amount of difference for "the same stream, one more predicate".
+3. **The two new `foreachBatch` functions, side by side with `upsert_batch`.**
+   `upsert_batch` is the house pattern for a sink write in this repo, and its
+   docstring says "safe to replay". Ask whether each new one is, and whether
+   it needed a streaming aggregate at all or could have merged batch deltas
+   the same way `upsert_batch` does.
+4. **The writer chains.** Trigger, checkpoint option, query name, output
+   mode. `outputMode("complete")` on a `groupBy` with no time-bounded key is
+   the detail worth stopping on.
 5. **The tests last,** to see which of the above they actually exercise. Here
-   they cover one batch and one run, which is exactly the region where all
-   the defects are invisible.
+   the shipped test for the counts query never runs a second batch against an
+   existing table, which is exactly the region where the merge defect lives.
 
 Things worth grepping before commenting:
 
-- `grep -n "dropDuplicates" app/jobs/order_events_stream.py` shows two
-  different calls in one file.
+- `grep -n "outputMode\|groupBy" app/jobs/order_events_stream.py` finds the
+  one query that aggregates instead of merging, and asks whether its key has
+  a time component a watermark could expire.
 - `grep -n "maxFilesPerTrigger\|trigger(\|queryName\|checkpointLocation"`
-  gives you the whole streaming surface in ten lines.
-- `grep -rn "WATERMARK\|10 minutes"` finds a constant and a literal that
-  should be the same thing.
+  gives you the whole streaming surface in a dozen lines.
+- `grep -n "__staging"` finds every sink that stages before it overwrites,
+  which is worth comparing for duplication.
 - `git log -p --follow app/jobs/order_events_stream.py` for the base job's
   intent. The README section on the lake and the "all writes are idempotent"
   convention are the standard this PR is measured against.
 
 Questions to ask the author, in the order they occur while reading:
 
-- What happens to this table if Spark reruns batch 7?
-- Why does the new reader dedupe differently from the existing one?
-- What does the state store look like a month after this ships?
-- Was the one second trigger measured, or copied from a local run?
+- What happens to the counts table if Spark reruns batch 7?
+- Why does the customer totals query need `outputMode("complete")`, and what
+  does its state store look like a year after this ships?
+- Was the one second trigger on the counts query measured, or copied from a
+  local run?
+- Did the test for the counts merge ever run against a table that already
+  has rows in it?
 
-## Reasoning chain, defect by defect
+## Reasoning chain, finding by finding
 
 ### The counts merge is not replay safe (Blocker)
 
@@ -68,39 +77,39 @@ The tell in the diff: the batch function takes `batch_id` and never uses it
 except in the log line. In a streaming sink, an unused `batch_id` is a
 question waiting to be asked.
 
-### `dropDuplicates` instead of `dropDuplicatesWithinWatermark` (Major)
+### Customer totals query aggregates in complete mode over an unbounded key (Major)
 
-These two are not spelling variants. Plain `dropDuplicates` on a streaming
-frame keeps every key it has ever seen unless the watermark column is part of
-the key, so with `event_id` alone the state store grows by one row per event
-forever. `dropDuplicatesWithinWatermark` expires each key at that row's event
-time plus the delay, which is why the base job uses it.
+`customer_running_totals` groups by `customer_id` and the writer uses
+`outputMode("complete")`, which Spark requires for a non-windowed aggregate.
+That requirement is also the problem: `customer_id` has no time component a
+watermark could expire it by, so the state store holds one row per customer
+for the life of the checkpoint, and every trigger recomputes and rewrites
+every customer ever seen, not just the ones in this batch. Both the state
+size and the per-trigger write grow with total customer count, never
+shrinking.
 
-The reasoning that gets you there without knowing the API by heart: the new
-reader sets a watermark, so state is meant to expire; the key is an id with no
-time in it; ask what tells Spark when this key is safe to forget. Nothing
-does. Then check the sibling function, which uses the other call, and ask why
-they differ.
+The reasoning that gets you there without knowing the API by heart:
+`outputMode("complete")` plus `groupBy` is a phrase worth pausing on whenever
+the grouping key is an id rather than a window. Ask what makes an old key
+leave state. If the answer is "nothing", that is the finding. The fix already
+exists two functions above: `merge_paid_counts` merges a batch delta into a
+plain table inside `foreachBatch`, with no streaming aggregation and no
+unbounded state, and the totals query could do the same thing with `F.sum`
+in place of `F.countDistinct`.
 
-This one takes weeks to show up. The job is fine in staging, fine in the first
-week of production, then the executors die on state size and the checkpoint
-has to be cleared by hand.
+### The counts test never runs a second batch (Major)
 
-### `maxFilesPerTrigger` missing (Major)
+The only test that exercises `start_paid_counts` end to end always starts
+from an empty target. `merge_paid_counts` has a second branch, read the
+existing table and add to it, that only runs once a target exists, and that
+branch is exactly where the replay defect above lives. A test suite that
+never populates the table before merging into it cannot fail on that defect
+no matter how the code changes.
 
-The existing reader bounds each micro-batch to ten files; the new one does
-not. On a healthy day this is invisible, because the source has one small
-file per trigger. It matters on the first trigger after an outage, when the
-backlog is thousands of files: the new query pulls all of it into one
-micro-batch, and its batch function then does a distinct, a group by, and a
-full rewrite of the counts table over the whole thing.
+The habit this builds: whenever a function branches on "does the target
+already exist", ask whether the test suite ever puts it in both states.
 
-Notice the pattern the two Majors share: both are correct on the fixture and
-wrong on the second Tuesday of an incident. That is the standing question for
-a streaming review, "what does this do at the moment the system is already
-unhealthy".
-
-### One second trigger (Minor)
+### One second trigger on the counts query (Minor)
 
 Cheap locally, expensive on an object store, where every trigger is a
 directory listing. It is a Minor rather than a Major because the failure mode
@@ -108,13 +117,6 @@ is cost and noise, not wrong data, and because the fix is one line with no
 migration. The signal in the diff is the inconsistency: 30 seconds two
 functions above, one second here, with a comment explaining the intent, which
 means it was deliberate and can be discussed rather than simply corrected.
-
-### Inlined watermark literal, missing query name (Nits)
-
-Both are the same kind of remark: they cost nothing now and cost a little
-later. Keep them last in the review and say plainly that they do not block.
-A review that opens with the missing `queryName` has told the author the
-counts can be wrong forever is roughly as important as a log label.
 
 ### The clean trap
 
@@ -131,6 +133,56 @@ other thing that looks wrong and is fine: the frame handed to `foreachBatch`
 is a batch frame, and reading the sink each batch is how the merge computes
 "existing plus incoming".
 
+## Design and tests
+
+A design or refactor finding in this file never shows up as a runtime
+failure on the fixture; you only see it by asking "will the next feature pay
+for this shape". Two ways in:
+
+- **Compare a new function to its closest sibling.** `batch_paid_counts` and
+  `upsert_batch`'s staging block both exist next to a near-identical
+  neighbor: `latest_per_order` for the merge shape, and `upsert_batch`'s own
+  stage-then-overwrite dance for the write. When two functions in the same
+  file do the same four lines a different way, or the same four lines the
+  same way without sharing them, that is the design smell, not a runtime bug.
+  `merge_paid_counts` (line 116) stages, writes, overwrites, and removes the
+  staging directory with the exact same four lines `upsert_batch` (line 77)
+  already has above it. Nothing here is wrong today; the cost lands the next
+  time a third sink function needs the same rewrite and copies it again
+  instead of calling a shared helper.
+- **Ask whether a built-in already does this.** `batch_paid_counts` computes
+  "how many distinct orders per customer" with `.select(...).distinct()
+  .groupBy("customer_id").agg(F.count("*"))`. Before accepting a multi-step
+  pipeline, ask whether one aggregate function already expresses the same
+  intent: `F.countDistinct("order_id")` under the same `groupBy` does, in one
+  step instead of a shuffle followed by another shuffle. This is the kind of
+  finding you catch by naming what the code computes in one sentence, then
+  checking whether the API has a name for exactly that sentence.
+- **Refactor, not defect: read the signatures, not just the bodies.** `start`,
+  `start_paid_counts`, and now `start_customer_totals` all take the same
+  `(source_dir, target, checkpoint)` trio, and `main` parses the same pair of
+  CLI flags a third time to build it. No single occurrence is a problem; the
+  third repetition is the signal that a small `StreamPaths` grouping would
+  pay for itself, and it is exactly the kind of thing you flag as "worth
+  doing, not blocking" rather than requesting changes over.
+- **For the test finding, ask what state the test starts from.** A test that
+  calls a merge function once, against an empty table, can never reach the
+  "existing rows plus this batch" branch. Whenever a function's body branches
+  on whether something already exists, check whether any test in the file
+  ever makes that branch true before this PR's change was applied.
+
+Two interviewer questions about these:
+
+1. `merge_paid_counts` and the fixed `merge_customer_totals` are now nearly
+   identical: read existing, guard on `_batch_id`, merge, stage, overwrite.
+   Why does the reference fix not also extract a shared `merge_running_value`
+   helper parameterized by the aggregate function, and when would you push
+   back and say it should?
+2. The `StreamPaths` refactor is applied to `start_paid_counts` but not to
+   `start` or `start_customer_totals`. Is that the right amount of fix for a
+   Minor, not-blocking finding, or does leaving two of three functions on the
+   old signature create its own inconsistency?
+
 ## Five questions an interviewer would ask about the rewrite
 
 1. The fix stores the applied `batch_id` on the counts table and skips a
@@ -142,9 +194,9 @@ is a batch frame, and reading the sink each batch is how the merge computes
 3. The guard compares against the maximum stored `_batch_id`. What breaks if
    two queries ever write this table, or if the checkpoint is cleared and
    batch ids restart at zero?
-4. `dropDuplicatesWithinWatermark` dedupes only within the watermark. What
-   does a producer retry that arrives eleven minutes late do to this count,
-   and how would you decide whether that matters?
-5. The rewrite deliberately did not name the existing upsert query and did
-   not extract a shared reader helper. Argue both decisions, then argue the
-   opposite.
+4. The customer totals fix drops the streaming aggregate entirely in favor of
+   a batch merge. What would make the aggregate the right call after all, and
+   what would you need to add to make it safe at that point?
+5. The rewrite deliberately did not extract a shared reader helper for
+   `read_events` and `paid_events`, even though they are now identical except
+   for one filter. Argue both decisions, then argue the opposite.
