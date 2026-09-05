@@ -23,17 +23,18 @@ def test_enrich_metrics_for_one_day(spark, lake):
     assert_df_equality(actual, expected, ignore_nullable=True)
 
 
-def test_large_order_flag(spark):
+def test_large_order_threshold_is_inclusive(spark):
     dt = "2026-08-01"
     orders = spark.createDataFrame(
         [
             (1, 1, "paid", "USD", Decimal("49.00"), datetime(2026, 8, 1, 9, tzinfo=UTC), dt),
-            (2, 1, "paid", "USD", Decimal("51.00"), datetime(2026, 8, 1, 10, tzinfo=UTC), dt),
+            (2, 1, "paid", "USD", Decimal("50.00"), datetime(2026, 8, 1, 10, tzinfo=UTC), dt),
+            (3, 1, "paid", "USD", Decimal("51.00"), datetime(2026, 8, 1, 11, tzinfo=UTC), dt),
         ],
         ORDERS_SCHEMA,
     )
     actual = enrich_daily(orders).collect()[0]
-    assert actual.large_order_count == 1
+    assert actual.large_order_count == 2  # 50.00 is the threshold and counts as large
 
 
 def test_main_writes_only_the_requested_partitions(spark, lake):
