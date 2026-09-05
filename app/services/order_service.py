@@ -204,4 +204,5 @@ class OrderService:
                 log.warning("skipping order %s: %s", order_id, exc)
         if shipped:
             self.notifications.warehouse_digest([o.id for o in shipped])
+        log.info("fulfilled %d of %d orders", len(shipped), len(jobs))
         return shipped
