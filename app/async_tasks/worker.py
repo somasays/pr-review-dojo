@@ -97,6 +97,10 @@ class QueueWorker:
         if self._inflight:
             await asyncio.gather(*self._inflight)
 
+    def drain(self) -> None:
+        """Convenience for scripts: block until the queue has been drained."""
+        asyncio.get_event_loop().run_until_complete(self.run_until_idle())
+
     async def run_until_idle(self, idle_after: float = 0.3) -> None:
         """Convenience for scripts: stop once the queue has been empty for a while."""
 

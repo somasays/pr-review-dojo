@@ -13,7 +13,7 @@ interview practice. Exercises are pull requests against this codebase. See
 | `app/services` | `OrderService` (create, pay, ship, cancel), `PricingService` (adapts products and discount codes to the domain), `NotificationService` (retried sends with dedupe keys), a `retry` helper, and the settings loader. |
 | `app/api` | FastAPI app. Routers for orders, customers, and reports. API-key auth via `X-API-Key`, admin keys from settings, customer keys hashed in the database. Pydantic response models are explicit allowlists. |
 | `app/jobs` | PySpark. `daily_orders` is a batch job that aggregates one day of orders per customer. `order_events_stream` is a Structured Streaming job that upserts the latest status per order. Both run on `local[*]` with small fixtures. |
-| `app/async_tasks` | An asyncio worker that drains a queue and dispatches tasks to service handlers in a thread, with bounded concurrency and retries. |
+| `app/async_tasks` | An asyncio worker that drains a queue and dispatches tasks to service handlers in a thread, with bounded concurrency and retries. `handlers.py` holds the registered task kinds and `dispatch.py` runs one batch of order confirmations. |
 | `tests` | pytest suite. SQLite in memory for database tests, `chispa` for DataFrame assertions, a session-scoped SparkSession. |
 
 ## Data layout
@@ -67,6 +67,7 @@ uv run ruff check . && uv run mypy
 uv run alembic upgrade head
 uv run uvicorn app.api.main:app --reload
 uv run python -m app.jobs.daily_orders --root ./data --start 2026-08-01 --end 2026-08-01
+uv run python -m app.async_tasks.dispatch --limit 100
 ```
 
 Spark needs a JDK 17 on `JAVA_HOME`. On macOS with Homebrew, `conftest.py`
