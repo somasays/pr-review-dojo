@@ -133,13 +133,14 @@ class OrderRepository:
             select(Order)
             .where(
                 Order.customer_id == customer_id,
-                Order.status.in_(statuses),
                 Order.created_at >= start,
                 Order.created_at < end,
             )
             .order_by(Order.created_at.desc())
             .limit(limit)
         )
+        if statuses:
+            stmt = stmt.where(Order.status.in_(statuses))
         if cursor is not None:
             seen_at, seen_id = cursor
             stmt = stmt.where(
@@ -169,12 +170,10 @@ class OrderRepository:
 
     def count_for_export(self, customer_id: int, statuses: Sequence[str]) -> int:
         """How many orders the export filter matches, ignoring the date window."""
-        rows = (
-            self.session.query(Order)
-            .filter(Order.customer_id == customer_id, Order.status.in_(statuses))
-            .all()
-        )
-        return len(rows)
+        stmt = select(func.count(Order.id)).where(Order.customer_id == customer_id)
+        if statuses:
+            stmt = stmt.where(Order.status.in_(statuses))
+        return self.session.scalar(stmt) or 0
 
     def add(self, order: Order, items: list[OrderItem]) -> Order:
         order.items = items
