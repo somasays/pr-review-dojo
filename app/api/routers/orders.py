@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams
+from app.api.deps import (
+    AdminPrincipal,
+    CurrentPrincipal,
+    DbSession,
+    Orders,
+    PageParams,
+    rate_limit,
+)
 from app.api.schemas import OrderCreate, OrderOut, Page
 from app.db.models import Order
 from app.db.repositories import NotFound, OrderRepository
@@ -18,7 +25,12 @@ from app.services.pricing_service import (
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 
-@router.post("", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=OrderOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit)],
+)
 def create_order(principal: CurrentPrincipal, body: OrderCreate, service: Orders) -> Order:
     cmd = CreateOrderCommand(
         customer_id=principal.customer,
@@ -53,7 +65,7 @@ def get_order(order_id: int, db: DbSession, principal: CurrentPrincipal) -> Orde
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
 
 
-@router.post("/{order_id}/cancel", response_model=OrderOut)
+@router.post("/{order_id}/cancel", response_model=OrderOut, dependencies=[Depends(rate_limit)])
 def cancel_order(
     order_id: int, db: DbSession, principal: CurrentPrincipal, service: Orders
 ) -> Order:
@@ -67,7 +79,7 @@ def cancel_order(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
-@router.post("/{order_id}/pay", response_model=OrderOut)
+@router.post("/{order_id}/pay", response_model=OrderOut, dependencies=[Depends(rate_limit)])
 def pay_order(order_id: int, _admin: AdminPrincipal, service: Orders) -> Order:
     try:
         return service.mark_paid(order_id)
@@ -77,7 +89,7 @@ def pay_order(order_id: int, _admin: AdminPrincipal, service: Orders) -> Order:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
-@router.post("/{order_id}/ship", response_model=OrderOut)
+@router.post("/{order_id}/ship", response_model=OrderOut, dependencies=[Depends(rate_limit)])
 def ship_order(order_id: int, _admin: AdminPrincipal, service: Orders) -> Order:
     try:
         return service.ship(order_id)
