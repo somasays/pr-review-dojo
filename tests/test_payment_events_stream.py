@@ -17,3 +17,11 @@ def test_latest_status_per_payment(spark, tmp_path: Path):
     assert latest.count() == 4
     rows = {r.payment_id: r.status for r in latest.collect()}
     assert rows == {"p1": "captured", "p2": "failed", "p3": "failed", "p4": "captured"}
+
+    metrics = spark.read.parquet(f"{root}/payment_batch_metrics").collect()
+    assert len(metrics) == 1
+    assert metrics[0].event_count == 4
+    assert metrics[0].failed_count == 2
+
+    alerts = spark.read.parquet(f"{root}/payment_alerts").collect()
+    assert [a.reason for a in alerts] == ["high_failure_rate"]
