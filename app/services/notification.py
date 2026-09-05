@@ -65,6 +65,16 @@ class NotificationService:
             )
         )
 
+    def payment_received(self, email: str, order_id: int, amount: str, reference: str) -> None:
+        self._deliver(
+            Message(
+                to=email,
+                subject=f"Payment received for order {order_id}",
+                body=f"We charged {amount} to your card. Gateway reference {reference}.",
+                dedupe_key=f"payment-received:{order_id}",
+            )
+        )
+
     def order_shipped(self, email: str, order_id: int) -> None:
         self._deliver(
             Message(

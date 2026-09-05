@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from app.db.models import Order, OrderItem
+from app.domain.order_state import InvalidTransition
 from app.services.config import Settings
 from app.services.notification import InMemorySender, NotificationService
 from app.services.payment_service import PaymentDeclined, PaymentService
@@ -22,12 +23,11 @@ def sender() -> InMemorySender:
     return InMemorySender()
 
 
-@pytest.fixture
-def order(db, seeded) -> Order:
+def _make_order(db, seeded, status: str = "pending_payment") -> Order:
     row = Order(
         customer_id=seeded["customer"].id,
         idempotency_key="pay-00000001",
-        status="pending_payment",
+        status=status,
         currency="USD",
         subtotal=Decimal("39.98"),
         discount=Decimal("0.00"),
@@ -45,6 +45,11 @@ def order(db, seeded) -> Order:
     db.add(row)
     db.commit()
     return row
+
+
+@pytest.fixture
+def order(db, seeded) -> Order:
+    return _make_order(db, seeded)
 
 
 def _service(db, sender, handler) -> PaymentService:
@@ -90,6 +95,35 @@ def test_declined_card_raises(db, order, sender):
     assert exc.value.reason == "insufficient_funds"
     assert order.status == "pending_payment"
     assert sender.sent == []
+
+
+def test_charging_an_already_paid_order_is_a_no_op(db, seeded, sender):
+    order = _make_order(db, seeded, status="paid")
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return _approve(request)
+
+    charged = _service(db, sender, handler).charge(order.id, "tok_visa")
+
+    assert charged.status == "paid"
+    assert calls == []
+    assert sender.sent == []
+
+
+def test_charging_an_order_that_cannot_move_to_paid_raises_before_charging(db, seeded, sender):
+    order = _make_order(db, seeded, status="shipped")
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return _approve(request)
+
+    with pytest.raises(InvalidTransition):
+        _service(db, sender, handler).charge(order.id, "tok_visa")
+
+    assert calls == []
 
 
 def test_charge_sends_the_configured_api_key(db, order, sender):

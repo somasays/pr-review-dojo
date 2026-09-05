@@ -37,6 +37,10 @@ class Settings:
     smtp_port: int = 25
     smtp_password: str = ""
     notify_retries: int = 3
+    payment_gateway_url: str = "https://payments.invalid"
+    payment_api_key: str = ""
+    payment_timeout_seconds: float = 10.0
+    payment_attempts: int = 3
     notify_backoff_seconds: float = 0.2
     worker_concurrency: int = 4
     data_lake_root: str = "./data"
@@ -60,6 +64,10 @@ def load_settings() -> Settings:
         smtp_port=_int("SMTP_PORT", 25),
         smtp_password=os.environ.get("SMTP_PASSWORD", ""),
         notify_retries=_int("NOTIFY_RETRIES", 3),
+        payment_gateway_url=os.environ.get("PAYMENT_GATEWAY_URL", "https://payments.invalid"),
+        payment_api_key=os.environ.get("PAYMENT_API_KEY", ""),
+        payment_timeout_seconds=float(os.environ.get("PAYMENT_TIMEOUT_SECONDS", "10")),
+        payment_attempts=_int("PAYMENT_MAX_ATTEMPTS", 3),
         notify_backoff_seconds=float(os.environ.get("NOTIFY_BACKOFF_SECONDS", "0.2")),
         worker_concurrency=_int("WORKER_CONCURRENCY", 4),
         data_lake_root=os.environ.get("DATA_LAKE_ROOT", "./data"),

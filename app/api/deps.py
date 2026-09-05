@@ -107,7 +107,7 @@ Orders = Annotated[OrderService, Depends(get_order_service)]
 
 
 def get_payment_service(db: DbSession, settings: AppSettings) -> PaymentService:
-    return PaymentService(db, NotificationService(_sender, settings))
+    return PaymentService(db, NotificationService(_sender, settings), settings=settings)
 
 
 Payments = Annotated[PaymentService, Depends(get_payment_service)]

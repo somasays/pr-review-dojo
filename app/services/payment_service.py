@@ -9,20 +9,21 @@ the card twice.
 from __future__ import annotations
 
 import logging
-import os
-import time
 from typing import Any
 
 import httpx
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Order
-from app.db.repositories import NotFound
-from app.domain.order_state import InvalidTransition, OrderStatus
-from app.services.notification import Message, NotificationService
+from app.db.repositories import OrderRepository
+from app.domain.order_state import OrderStatus, transition
+from app.services.config import Settings, get_settings
+from app.services.notification import NotificationService
+from app.services.retry import RetryExhausted, RetryPolicy, retry
 
 log = logging.getLogger(__name__)
+
+DECLINED = 402
 
 
 class PaymentDeclined(Exception):
@@ -36,93 +37,81 @@ class PaymentGatewayError(Exception):
     pass
 
 
+def charge_reference(order_id: int) -> str:
+    return f"order-{order_id}"
+
+
+def charge_payload(order: Order, card_token: str) -> dict[str, Any]:
+    """The gateway request body for one order. Pure: no session, no client."""
+    return {
+        "reference": charge_reference(order.id),
+        "amount_cents": int(order.total * 100),
+        "currency": order.currency,
+        "card_token": card_token,
+        "customer_email": order.customer.email,
+        "lines": [
+            {
+                "sku": item.sku,
+                "quantity": item.quantity,
+                "unit_price_cents": int(item.unit_price * 100),
+            }
+            for item in order.items
+        ],
+    }
+
+
 class PaymentService:
     def __init__(
         self,
         session: Session,
         notifications: NotificationService,
         client: httpx.Client | None = None,
+        settings: Settings | None = None,
     ) -> None:
+        settings = settings or get_settings()
         self.session = session
+        self.orders = OrderRepository(session)
         self.notifications = notifications
-        self.base_url = os.environ.get("PAYMENT_GATEWAY_URL", "https://payments.invalid")
-        self.api_key = os.environ.get("PAYMENT_API_KEY", "")
-        self.attempts = int(os.environ.get("PAYMENT_MAX_ATTEMPTS", "3"))
-        self.client = client or httpx.Client(base_url=self.base_url, timeout=10.0)
+        self.client = client or httpx.Client(
+            base_url=settings.payment_gateway_url, timeout=settings.payment_timeout_seconds
+        )
+        self.api_key = settings.payment_api_key
+        self.policy = RetryPolicy(
+            attempts=settings.payment_attempts, retry_on=(httpx.TransportError,)
+        )
 
     def charge(self, order_id: int, card_token: str) -> Order:
-        try:
-            order = self.session.scalar(select(Order).where(Order.id == order_id))
-            if order is None:
-                raise NotFound("order", order_id)
-            if order.status == "paid":
-                # The gateway already has a charge under this reference.
-                return order
-            if order.status != "pending_payment":
-                raise InvalidTransition(OrderStatus(order.status), OrderStatus.PAID)
-
-            reference = f"order-{order.id}"
-            lines: list[dict[str, Any]] = []
-            for item in order.items:
-                lines.append(
-                    {
-                        "sku": item.sku,
-                        "quantity": item.quantity,
-                        "unit_price_cents": int(item.unit_price * 100),
-                    }
-                )
-            payload: dict[str, Any] = {
-                "reference": reference,
-                "amount_cents": int(order.total * 100),
-                "currency": order.currency,
-                "card_token": card_token,
-                "customer_email": order.customer.email,
-                "lines": lines,
-            }
-
-            response = None
-            last_error: Exception | None = None
-            for attempt in range(1, self.attempts + 1):
-                if attempt > 1:
-                    time.sleep(0.2 * 2 ** (attempt - 2))
-                try:
-                    response = self.client.post(
-                        "/charges",
-                        json=payload,
-                        headers={
-                            "Authorization": f"Bearer {self.api_key}",
-                            "Idempotency-Key": reference,
-                        },
-                    )
-                    break
-                except httpx.TransportError as exc:
-                    last_error = exc
-                    log.warning("charge attempt %d/%d failed: %s", attempt, self.attempts, exc)
-            if response is None:
-                raise PaymentGatewayError(
-                    f"gateway unreachable after {self.attempts} attempts: {last_error!r}"
-                )
-            if response.status_code == 402:
-                raise PaymentDeclined(order.id, str(response.json().get("reason", "declined")))
-            if response.status_code >= 400:
-                raise PaymentGatewayError(f"gateway returned {response.status_code}")
-
-            charge_id = str(response.json().get("id") or reference)
-            order.status = "paid"
-            self.session.flush()
-
-            self.notifications.sender.send(
-                Message(
-                    to=order.customer.email,
-                    subject=f"Payment received for order {order.id}",
-                    body=(
-                        f"We charged {order.currency} {order.total} to your card. "
-                        f"Gateway reference {charge_id}."
-                    ),
-                    dedupe_key=f"payment-received:{order.id}",
-                )
-            )
+        order = self.orders.get(order_id)
+        if order.status == OrderStatus.PAID:
+            # The gateway already has a charge under this reference.
             return order
-        except Exception:
-            log.exception("charge failed for order %s", order_id)
-            raise
+        # Check before charging: a declined transition must not reach the card.
+        target = transition(OrderStatus(order.status), OrderStatus.PAID)
+
+        response = self._post(charge_payload(order, card_token))
+        if response.status_code == DECLINED:
+            raise PaymentDeclined(order.id, str(response.json().get("reason", "declined")))
+        if response.status_code >= 400:
+            raise PaymentGatewayError(f"gateway returned {response.status_code}")
+
+        charge_id = str(response.json().get("id") or charge_reference(order.id))
+        order.status = target
+        self.session.flush()
+        self.notifications.payment_received(
+            order.customer.email, order.id, f"{order.currency} {order.total}", charge_id
+        )
+        return order
+
+    def _post(self, payload: dict[str, Any]) -> httpx.Response:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Idempotency-Key": str(payload["reference"]),
+        }
+        try:
+            return retry(
+                lambda: self.client.post("/charges", json=payload, headers=headers), self.policy
+            )
+        except RetryExhausted as exc:
+            raise PaymentGatewayError(
+                f"gateway unreachable after {exc.attempts} attempts: {exc.last!r}"
+            ) from exc

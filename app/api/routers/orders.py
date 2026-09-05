@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams, Payments
@@ -17,8 +15,6 @@ from app.services.pricing_service import (
     UnknownDiscountCode,
     UnknownSku,
 )
-
-log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -112,6 +108,3 @@ def charge_order(
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, str(exc)) from exc
     except PaymentGatewayError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
-    except Exception:
-        log.exception("charge request failed for order %s", order_id)
-        raise

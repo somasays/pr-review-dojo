@@ -82,6 +82,10 @@ All settings are read once from the environment by `app.services.config`.
 | `DATABASE_URL` | `sqlite:///./dojo.db` | SQLAlchemy URL |
 | `ADMIN_API_KEYS` | empty | comma-separated admin keys |
 | `NOTIFY_RETRIES` | `3` | send attempts |
+| `PAYMENT_GATEWAY_URL` | `https://payments.invalid` | card gateway base URL |
+| `PAYMENT_API_KEY` | empty | bearer token for the card gateway |
+| `PAYMENT_TIMEOUT_SECONDS` | `10` | gateway request timeout |
+| `PAYMENT_MAX_ATTEMPTS` | `3` | gateway send attempts |
 | `WORKER_CONCURRENCY` | `4` | async worker bound |
 | `DATA_LAKE_ROOT` | `./data` | parquet root |
 | `PAGE_SIZE_MAX` | `200` | list endpoint cap |
