@@ -36,5 +36,5 @@ def test_receipt_text_lists_every_line():
 
 
 def test_empty_cart_is_rejected():
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError, match="cannot quote an empty order"):
         compute_order_total([], [], "US-CA")
