@@ -13,10 +13,8 @@ import json
 import logging
 import threading
 from collections import deque
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
 
@@ -24,20 +22,6 @@ log = logging.getLogger(__name__)
 
 HOLD_TTL = timedelta(minutes=10)
 SWEEP_SECONDS = 30.0
-
-_metrics: dict[str, int] = {"holds_created": 0, "holds_expired": 0}
-
-
-def record_hold_created() -> None:
-    _metrics["holds_created"] = _metrics["holds_created"] + 1
-
-
-def record_holds_expired(count: int) -> None:
-    _metrics["holds_expired"] = _metrics["holds_expired"] + count
-
-
-def hold_metrics() -> dict[str, int]:
-    return dict(_metrics)
 
 
 @dataclass(frozen=True)
@@ -95,11 +79,6 @@ class ReservationCache:
         with self._lock:
             return stock - self._held.get(sku, 0)
 
-    @lru_cache(maxsize=256)
-    def held_many(self, skus: Sequence[str]) -> dict[str, int]:
-        with self._lock:
-            return {sku: self._held.get(sku, 0) for sku in skus}
-
     def held_skus(self) -> list[str]:
         with self._lock:
             return sorted(sku for sku, qty in self._held.items() if qty > 0)
@@ -117,7 +96,6 @@ class ReservationCache:
         with self._lock:
             self._held[sku] = self._held.get(sku, 0) + quantity
             self._holds[hold.token] = hold
-        record_hold_created()
         return hold
 
     def release(self, token: str) -> bool:
@@ -137,7 +115,6 @@ class ReservationCache:
                 self._drop_locked(hold)
         for hold in stale:
             self.recently_expired.append(hold.sku)
-        record_holds_expired(len(stale))
         return len(stale)
 
     def _drop_locked(self, hold: Hold) -> None:

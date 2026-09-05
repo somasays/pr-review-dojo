@@ -33,15 +33,13 @@ def test_expire_drops_holds_past_their_ttl():
     assert list(cache.recently_expired)[-1] == "WIDGET"
 
 
-def test_hold_endpoints_round_trip(client):
+def test_create_order_uses_the_reservation_cache(client):
     headers = {"X-API-Key": "customer-test-key"}
-    created = client.post("/orders/holds", json={"sku": "GADGET", "quantity": 2}, headers=headers)
-    assert created.status_code == 201
-    token = created.json()["token"]
+    body = {"idempotency_key": "reservation-flow-1", "items": [{"sku": "GADGET", "quantity": 2}]}
+    assert client.post("/orders", json=body, headers=headers).status_code == 201
 
-    conflict = client.post("/orders/holds", json={"sku": "GADGET", "quantity": 4}, headers=headers)
-    assert conflict.status_code == 409
-
-    released = client.delete(f"/orders/holds/{token}", headers=headers)
-    assert released.status_code == 204
-    assert client.delete(f"/orders/holds/{token}", headers=headers).status_code == 404
+    oversell = {
+        "idempotency_key": "reservation-flow-2",
+        "items": [{"sku": "GADGET", "quantity": 10}],
+    }
+    assert client.post("/orders", json=oversell, headers=headers).status_code == 409

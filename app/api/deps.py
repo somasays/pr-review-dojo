@@ -117,9 +117,6 @@ def get_reservation_cache() -> ReservationCache:
     return _reservation_cache
 
 
-Reservations = Annotated[ReservationCache, Depends(get_reservation_cache)]
-
-
 def get_order_service(db: DbSession, settings: AppSettings) -> OrderService:
     return OrderService(
         db,
