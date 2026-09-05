@@ -48,12 +48,14 @@ def test_note_on_unknown_order_is_404(client):
     assert client.patch("/orders/999/notes", json={"body": "nope"}, headers=H).status_code == 404
 
 
-def test_note_body_length_is_validated(client):
+def test_note_body_of_500_chars_is_accepted_501_is_rejected(client):
     oid = _create_order(client)
-    ok = client.patch(f"/orders/{oid}/notes", json={"body": "short note"}, headers=H)
-    assert ok.status_code == 200
-    too_long = client.patch(f"/orders/{oid}/notes", json={"body": "x" * 800}, headers=H)
-    assert too_long.status_code == 422
+    empty = client.patch(f"/orders/{oid}/notes", json={"body": ""}, headers=H)
+    assert empty.status_code == 422
+    at_limit = client.patch(f"/orders/{oid}/notes", json={"body": "x" * 500}, headers=H)
+    assert at_limit.status_code == 200
+    over_limit = client.patch(f"/orders/{oid}/notes", json={"body": "x" * 501}, headers=H)
+    assert over_limit.status_code == 422
 
 
 def test_notes_are_listed_with_the_order(client):
