@@ -4,8 +4,8 @@ from pathlib import Path
 
 from pyspark.sql import functions as F
 
-from app.jobs.fixtures import write_events_fixture
-from app.jobs.order_events_stream import start
+from app.jobs.fixtures import write_events_fixture, write_status_change_fixture
+from app.jobs.order_events_stream import start, start_hourly_counts
 
 
 def _run_once(spark, src, target, ck):
@@ -45,3 +45,39 @@ def test_second_batch_upserts_and_replay_is_idempotent(spark, tmp_path: Path):
     df = spark.read.parquet(str(target))
     assert df.count() == 2
     assert df.filter(F.col("order_id") == 2).first().status == "paid"
+
+
+def test_hourly_counts_one_row_per_status(spark, tmp_path: Path):
+    src = tmp_path / "events"
+    counts_target = tmp_path / "status_counts"
+    ck = tmp_path / "ck-counts"
+    write_events_fixture(str(src), with_duplicate=True)
+    q = start_hourly_counts(spark, str(src), str(counts_target), str(ck), available_now=True)
+    q.awaitTermination()
+    rows = {r.status: r.change_count for r in spark.read.parquet(str(counts_target)).collect()}
+    assert rows == {"pending_payment": 2, "paid": 1}
+
+
+def test_hourly_counts_replay_does_not_double_count(spark, tmp_path: Path):
+    src = tmp_path / "events"
+    counts_target = tmp_path / "status_counts"
+    ck = tmp_path / "ck-counts"
+    write_events_fixture(str(src), with_duplicate=True)
+    for _ in range(2):
+        q = start_hourly_counts(spark, str(src), str(counts_target), str(ck), available_now=True)
+        q.awaitTermination()
+    df = spark.read.parquet(str(counts_target))
+    assert df.count() == 2
+    assert df.filter(F.col("status") == "pending_payment").first().change_count == 2
+
+
+def test_hourly_counts_cover_every_status_in_the_fixture(spark, tmp_path: Path):
+    src = tmp_path / "events"
+    counts_target = tmp_path / "status_counts"
+    ck = tmp_path / "ck-counts"
+    write_status_change_fixture(str(src), hours=4, per_hour=3)
+    q = start_hourly_counts(spark, str(src), str(counts_target), str(ck), available_now=True)
+    q.awaitTermination()
+    rows = spark.read.parquet(str(counts_target)).collect()
+    assert {r.status for r in rows} == {"pending_payment", "paid", "shipped"}
+    assert sum(r.change_count for r in rows) == 12
