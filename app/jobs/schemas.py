@@ -43,3 +43,16 @@ DAILY_CUSTOMER_SCHEMA = StructType(
         StructField("dt", StringType(), False),
     ]
 )
+
+CUSTOMER_ENRICHMENT_SCHEMA = StructType(
+    [
+        StructField("customer_id", IntegerType(), False),
+        StructField("order_count", IntegerType(), False),
+        StructField("paid_total", DecimalType(14, 2), False),
+        StructField("avg_order_value", DecimalType(14, 2), False),
+        StructField("large_order_count", IntegerType(), False),
+        StructField("first_order_hour", IntegerType(), False),
+        StructField("last_order_hour", IntegerType(), False),
+        StructField("dt", StringType(), False),
+    ]
+)
