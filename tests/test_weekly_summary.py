@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 from pyspark.sql import functions as F
@@ -31,19 +31,19 @@ def test_weekly_summary_rolls_daily_rows_into_weeks(spark, lake):
     assert set(rows) == {(c, w) for c in (1, 2, 3) for w in ("2026-07-27", "2026-08-03")}
     # 2026-08-01 and 2026-08-02 both fall in the week starting Monday 2026-07-27.
     first = rows[(1, "2026-07-27")]
-    assert first.n_orders == 4
-    assert first.total == Decimal("21.00")
+    assert first.order_count == 4
+    assert first.paid_total == Decimal("21.00")
     assert first.cancelled_count == 2
     assert first.region == "US-CA"
     # 2026-08-03 is a Monday, so its week holds a single day.
-    assert rows[(3, "2026-08-03")].total == Decimal("91.00")
+    assert rows[(3, "2026-08-03")].paid_total == Decimal("91.00")
     assert rows[(3, "2026-08-03")].region == "EU-DE"
 
 
 def test_run_writes_one_partition_per_week(spark, lake):
     paths = _warehouse(spark, lake)
     run(spark, paths, RANGE)
-    written = spark.read.parquet(f"{lake}/weekly_customer_summary")
+    written = spark.read.parquet(paths.weekly_customer_summary)
     assert {r.week_start for r in written.select("week_start").distinct().collect()} == {
         "2026-07-27",
         "2026-08-03",
@@ -51,7 +51,7 @@ def test_run_writes_one_partition_per_week(spark, lake):
     assert written.filter(F.col("week_start") == "2026-08-03").count() == 3
 
 
-def test_is_current_week_matches_todays_actual_week():
-    today = date.today()
-    assert is_current_week(today) is True
-    assert is_current_week(today - timedelta(days=7)) is False
+def test_is_current_week_matches_a_pinned_today():
+    today = date(2026, 8, 5)
+    assert is_current_week(date(2026, 8, 3), today=today) is True
+    assert is_current_week(date(2026, 7, 27), today=today) is False
