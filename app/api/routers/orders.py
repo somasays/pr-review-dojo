@@ -58,6 +58,10 @@ def get_order(order_id: int, db: DbSession, principal: CurrentPrincipal) -> Orde
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
 
 
+def _format_note_author(principal: Principal) -> str:
+    return "admin" if principal.is_admin else f"customer:{principal.customer}"
+
+
 @router.patch("/{order_id}/notes", response_model=OrderOut)
 def add_order_note(
     order_id: int, note: OrderNoteIn, db: DbSession, principal: CurrentPrincipal, service: Orders
@@ -68,8 +72,7 @@ def add_order_note(
     """
     try:
         _scope_order(db, order_id, principal)
-        author = "admin" if principal.is_admin else f"customer:{principal.customer}"
-        return service.add_note(order_id, note.body, author)
+        return service.add_note(order_id, note.body, _format_note_author(principal))
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
     except InvalidTransition as exc:
