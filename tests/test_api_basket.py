@@ -32,3 +32,14 @@ def test_reorder_copies_the_items_of_a_previous_order(client):
     assert body["items"] == first["items"]
     again = client.post(f"/orders/{first['id']}/reorder", json=payload, headers=H).json()
     assert again["id"] == body["id"]
+
+
+def test_reorder_creates_a_second_order_for_the_customer(client):
+    first = client.post(
+        "/orders", json={"idempotency_key": "key-00000003", **BASKET}, headers=H
+    ).json()
+    client.post(
+        f"/orders/{first['id']}/reorder", json={"idempotency_key": "key-00000004"}, headers=H
+    )
+    listed = client.get("/orders", headers=H).json()["items"]
+    assert len(listed) == 2
