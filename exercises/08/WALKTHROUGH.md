@@ -130,6 +130,59 @@ Asking "is `stats` ever touched from a thread?" is free and is not a false
 positive. It is also a good question, because the answer (no: sync handlers
 run in `to_thread` but never touch `stats`) is what makes the code safe.
 
+## Design and tests
+
+**The hardcoded sender in `resend_failed` (Major design).** You find this one
+by asking the same question every time you see a class built inside a
+function: could a test swap this out? `BatchNotifier` takes `sender:
+AsyncSender` in its own constructor, which tells you the author already knows
+that seam exists. `resend_failed` ignores it and writes `BatchNotifier
+(LoggingAsyncSender())` directly. Once you have noticed the mismatch, the
+consequence writes itself: no test can assert what a resend actually sent,
+and the function can never point at a real gateway client without editing
+this line. The fix is one parameter, `sender: AsyncSender`, because
+`BatchNotifier.__init__` already shows the pattern.
+
+**The CSV formatting mixed into the orchestration (Minor design).** Read
+`resend_failed` and count what it is doing at once: deciding dry-run or not,
+building messages, driving the send, and building CSV lines, all in one
+function. The formatting lines do not read `sender` and do not `await`
+anything, which is the tell that they belong somewhere else. Pulling them
+into `format_resend_report(messages)` is a pure function you can call with a
+list of `Message` values and nothing else, no session, no sender, no event
+loop.
+
+**The `dry_run` flag doing two jobs (Refactor, Minor).** This one shows up
+when you read the signature before the body: `resend_failed(order_ids, *,
+dry_run: bool = False)`. A boolean parameter that changes what a function
+does, rather than a small detail of how it does it, means the function is
+really two functions wearing one name. Every call site has to carry the flag
+correctly, and the two branches only share the CSV shape. Splitting
+`preview_resend` out is not required for correctness today, which is what
+makes it a refactor rather than a defect, but it is worth raising because the
+next person to call this with the wrong flag value will not get a type error.
+
+**The missing failure-path test (Major test).** Read the test file before you
+read the implementation it tests, and ask what happens if you flip every
+`assert` in it to check a different outcome. All three send tests in
+`tests/test_batch_notifier.py` seed a sender that never fails. For a function
+whose whole reason to exist is fanning sends out concurrently, the interesting
+case is what the return value looks like when one send in the middle raises,
+and that case is not here. This is the test a strong reviewer asks for first,
+because it is also the test that would have caught the `gather` defect
+without needing to read `asyncio`'s documentation.
+
+Two interviewer questions about these four:
+
+1. `resend_failed` and `preview_resend` both call `_resend_messages` and
+   `format_resend_report` in the reference fix. Why keep both public
+   functions instead of one function with a flag, given that they now share
+   almost all of their code?
+2. The new test for the partial failure uses `InMemoryAsyncSender(fail_keys=
+   {...})`, the same fake the hidden test for the `gather` defect uses.
+   Should a shipped test and a hidden test ever be allowed to be the same
+   assertion, or does that mean one of them is redundant?
+
 ## 5. Questions worth asking the author
 
 - What happens when one send in the batch fails? Say it out loud and follow
