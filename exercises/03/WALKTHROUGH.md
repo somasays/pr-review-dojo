@@ -101,7 +101,50 @@ persisted, add a commit" is a false positive, and the commit it asks for is
 itself a known defect (it breaks the caller's rollback). Asking "who commits
 this, `get_db`?" costs you nothing and is a fair question.
 
-## 5. Questions worth asking the author
+## 5. Design and tests
+
+A reviewer scanning past the defects would still stop at three more places
+in the follow-up commit, plus one test.
+
+- **The hand-rolled retry** (`notification.py`, `notify_support_of_large_refund`):
+  the tell is a `for attempt in range(3)` sitting a few lines below
+  `_deliver`, which already retries with backoff and wraps the failure.
+  Every other method on this class calls `_deliver`. This one built its own
+  copy, with no backoff and an `except Exception` that swallows a real bug
+  along with a flaky send. Worth flagging even though it works today,
+  because the next fix to retry behavior has to remember there are two
+  places to change it.
+- **Formatting mixed into orchestration** (`order_service.py`,
+  `flag_large_refund`): the function decides whether the order qualifies,
+  computes the lines, builds a CSV row with `csv.writer`, and sends the
+  alert, all in one place. A reviewer who wants to unit test the CSV shape
+  has to build a database session first just to reach it. Pulling the
+  formatting into a plain function that takes values and returns a string
+  is a small change with a real testability payoff.
+- **The boolean flag on `refund`**: `notify_support: bool = True` is new,
+  and grepping for its call sites turns up exactly one, always at the
+  default. A boolean parameter with one caller and one value in use is a
+  piece of flexibility nobody has asked for yet, and the next flag added the
+  same way starts turning `refund` into a small state machine.
+- **The threshold test** (`test_flag_large_refund_only_above_the_threshold`):
+  the code introduces a 500 dollar threshold and the test checks 50 and
+  5000. A reviewer who has been burned by an off by one in a `<` comparison
+  checks the number right next to the threshold, not two orders of magnitude
+  away from it.
+
+Two interviewer questions about them:
+
+1. `flag_large_refund` returns `None` both when the order is under the
+   threshold and, implicitly, whenever nothing goes wrong. If support later
+   wants to know that a refund was checked and found small, not just that it
+   was flagged, where would you add that signal, and does it belong in this
+   PR or a later one?
+2. The boolean flag and the inline CSV formatting are both "this works, but
+   the next feature makes it worse" findings, not bugs. If you could only
+   fix one before merge, which one, and what does leaving the other one in
+   cost the team six months from now?
+
+## 6. Questions worth asking the author
 
 - What happens if this endpoint is called twice? (This is the question that
   finds the Blocker without any code reading at all.)
@@ -117,7 +160,7 @@ this, `get_db`?" costs you nothing and is a fair question.
   failure modes, a replay and a discount that does not divide evenly, would
   they catch?
 
-## 6. Five interviewer questions about the rewrite
+## 7. Five interviewer questions about the rewrite
 
 1. The fix for the replayed refund moves three lines. Argue for and against
    the larger alternative, a `refunded_at` column with a unique constraint.
