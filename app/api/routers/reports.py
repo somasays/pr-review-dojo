@@ -4,9 +4,11 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter
 
-from app.api.deps import AdminPrincipal, DbSession
+from app.api.deps import AdminPrincipal, DbSession, get_rate_limiter
 from app.api.schemas import StatusCount
 from app.db.repositories import OrderRepository
+from app.services.config import get_settings
+from app.services.rate_limiter import seconds_until_reset
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -24,3 +26,23 @@ def recent_total(db: DbSession, _admin: AdminPrincipal, days: int = 7) -> dict[s
     rows = OrderRepository(db).created_between(start, end)
     total = sum((o.total for o in rows), start=0)
     return {"days": days, "orders": len(rows), "total": str(total)}
+
+
+@router.get("/rate-limits")
+def rate_limit_usage(_admin: AdminPrincipal) -> list[dict[str, object]]:
+    limiter = get_rate_limiter()
+    settings = get_settings()
+    rows: list[dict[str, object]] = []
+    for key, hits in limiter.snapshot().items():
+        started = limiter.window_started(key)
+        resets_in = seconds_until_reset(started, limiter.policy.window_seconds) if started else 0
+        used_pct = hits / settings.rate_limit_per_minute
+        rows.append(
+            {
+                "key": key,
+                "hits": hits,
+                "resets_in_seconds": resets_in,
+                "usage": f"{used_pct:.0%}",
+            }
+        )
+    return sorted(rows, key=lambda r: r["key"])

@@ -62,6 +62,11 @@ class RateLimiter:
         with self._lock:
             return dict(self._hits)
 
+    def window_started(self, key: str) -> float | None:
+        """When the current window for `key` began, for the ops dashboard."""
+        with self._lock:
+            return self._window_start.get(key)
+
     def sweep(self) -> int:
         """Drop keys whose window ended more than one window ago."""
         cutoff = time.monotonic() - 2 * self.policy.window_seconds
@@ -86,3 +91,9 @@ class RateLimiter:
         while not self._stopped:
             time.sleep(self.policy.window_seconds)
             self.sweep()
+
+
+def seconds_until_reset(window_start: float, window_seconds: int) -> int:
+    """How long until the window that started at `window_start` rolls over."""
+    elapsed = time.monotonic() - window_start
+    return max(int(window_seconds - elapsed), 0)

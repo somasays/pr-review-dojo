@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from app.services.rate_limiter import RateLimiter, RateLimitPolicy
+from app.services.rate_limiter import RateLimiter, RateLimitPolicy, seconds_until_reset
 
 
 def _limiter(limit: int = 3, window: int = 60) -> RateLimiter:
@@ -59,3 +59,22 @@ def test_rate_limit_headers_are_returned(client) -> None:
     assert response.status_code == 201
     assert response.headers["X-RateLimit-Limit"] == "100"
     assert int(response.headers["X-RateLimit-Remaining"]) < 100
+
+
+def test_seconds_until_reset_counts_down_to_zero() -> None:
+    assert seconds_until_reset(time.monotonic(), 60) in (59, 60)
+    assert seconds_until_reset(time.monotonic() - 90, 60) == 0
+
+
+def test_rate_limit_usage_report(client) -> None:
+    from conftest import ADMIN_KEY, CUSTOMER_KEY
+
+    client.post(
+        "/orders",
+        headers={"X-API-Key": CUSTOMER_KEY},
+        json={"idempotency_key": "rate-limit-2", "items": [{"sku": "WIDGET", "quantity": 1}]},
+    )
+    response = client.get("/reports/rate-limits", headers={"X-API-Key": ADMIN_KEY})
+    assert response.status_code == 200
+    rows = response.json()
+    assert any(row["hits"] >= 1 and row["usage"].endswith("%") for row in rows)
