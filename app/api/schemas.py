@@ -90,6 +90,10 @@ class CustomerSearchPage(BaseModel):
     offset: int
 
 
+class AddressIn(BaseModel):
+    line1: str = Field(min_length=1, max_length=200)
+
+
 class StatusCount(BaseModel):
     status: str
     count: int

@@ -1,6 +1,6 @@
 import pytest
 
-from app.db.models import Customer
+from app.db.models import Customer, CustomerAddress
 from app.db.repositories import CustomerRepository, NotFound
 from conftest import ADMIN_KEY, CUSTOMER_KEY
 
@@ -90,3 +90,17 @@ def test_lookup_endpoint_returns_404_for_no_match(client):
     headers = {"X-API-Key": ADMIN_KEY}
     assert client.get("/customers/lookup?q=Ada", headers=headers).status_code == 200
     assert client.get("/customers/lookup?q=Zz", headers=headers).status_code == 404
+
+
+def test_default_address_and_import_have_basic_coverage(db, seeded):
+    repo = CustomerRepository(db)
+    customer_id = seeded["customer"].id
+
+    first = repo.get_default_address(customer_id, CustomerAddress(line1="1 Main St"))
+    second = repo.get_default_address(customer_id, CustomerAddress(line1="2 Oak Ave"))
+    db.refresh(first)
+    assert first.is_default is False
+    assert second.is_default is True
+
+    skipped = repo.import_many([Customer(email="nina@example.com", name="Nina", region="US-CA")])
+    assert skipped == []

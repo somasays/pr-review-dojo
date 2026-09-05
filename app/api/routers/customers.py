@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import select
 
 from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, PageParams
-from app.api.schemas import CustomerCreate, CustomerOut, CustomerSearchPage, Page
-from app.db.models import Customer
+from app.api.schemas import AddressIn, CustomerCreate, CustomerOut, CustomerSearchPage, Page
+from app.db.models import Customer, CustomerAddress
 from app.db.repositories import CustomerRepository
 
 router = APIRouter(prefix="/customers", tags=["customers"])
@@ -74,3 +75,25 @@ def create_customer(db: DbSession, _admin: AdminPrincipal, body: CustomerCreate)
     if repo.by_email(body.email) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "email already registered")
     return repo.add(Customer(email=body.email, name=body.name, region=body.region))
+
+
+@router.post("/{customer_id}/address")
+def set_default_address(
+    db: DbSession, _admin: AdminPrincipal, customer_id: int, body: AddressIn
+) -> dict[str, object]:
+    """Add an address for the customer and make it their default shipping address."""
+    if db.execute(select(Customer.id).where(Customer.id == customer_id)).first() is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "customer not found")
+    address = CustomerRepository(db).get_default_address(
+        customer_id, CustomerAddress(line1=body.line1)
+    )
+    return {"id": address.id, "line1": address.line1}
+
+
+@router.post("/import")
+def import_customers(
+    db: DbSession, _admin: AdminPrincipal, rows: list[CustomerCreate]
+) -> list[str]:
+    """Bulk-add customers from the console's CSV upload; returns the skipped emails."""
+    customers = [Customer(email=r.email, name=r.name, region=r.region) for r in rows]
+    return CustomerRepository(db).import_many(customers)
