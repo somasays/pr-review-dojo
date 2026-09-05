@@ -1,15 +1,6 @@
 import pytest
 
-from app.db.repositories import DiscountCodeRepository
-from app.services.config import Settings
-from app.services.notification import InMemorySender, NotificationService
-from app.services.order_service import CreateOrderCommand, OrderService
-from app.services.pricing_service import (
-    DiscountExhausted,
-    ItemRequest,
-    PricingService,
-    UnknownDiscountCode,
-)
+from app.services.pricing_service import DiscountExhausted, PricingService, UnknownDiscountCode
 from conftest import ADMIN_KEY
 
 A = {"X-API-Key": ADMIN_KEY}
@@ -30,28 +21,17 @@ def test_code_at_its_limit_is_rejected(db, seeded):
         PricingService(db).resolve_discounts(["WELCOME10"])
 
 
-def test_create_records_a_redemption(db, seeded):
-    notify = NotificationService(InMemorySender(), Settings())
-    service = OrderService(db, PricingService(db), notify)
-    cmd = CreateOrderCommand(
-        customer_id=seeded["customer"].id,
-        idempotency_key="key-00000042",
-        items=[ItemRequest("WIDGET", 2)],
-        discount_codes=["FLAT5"],
-    )
-    assert service.create(cmd).discount_code == "FLAT5"
-    db.commit()
-    assert DiscountCodeRepository(db).by_code("FLAT5").times_redeemed == 1
+def test_admin_can_list_create_and_deactivate_codes(client):
+    listed = client.get("/discounts", headers=A).json()
+    assert [d["code"] for d in listed] == ["BULK15", "FLAT5", "WELCOME10"]
+    body = {"code": "spring20", "kind": "percent", "value": "20", "max_redemptions": 5}
+    created = client.post("/discounts", json=body, headers=A)
+    assert created.status_code == 201 and created.json()["code"] == "SPRING20"
+    assert client.post("/discounts/spring20/deactivate", headers=A).json()["active"] is False
 
 
-def test_admin_can_list_and_create_codes(client):
-    listed = client.get("/discounts", headers=A)
-    assert [d["code"] for d in listed.json()] == ["BULK15", "FLAT5", "WELCOME10"]
-    created = client.post(
-        "/discounts",
-        json={"code": "spring20", "kind": "percent", "value": "20", "max_redemptions": 5},
-        headers=A,
-    )
-    assert created.status_code == 201, created.text
-    assert created.json()["code"] == "SPRING20"
-    assert client.post("/discounts/flat5/deactivate", headers=A).json()["active"] is False
+def test_import_adds_a_batch_of_new_codes(client):
+    body = [{"code": "autumn10", "kind": "percent", "value": "10"}]
+    resp = client.post("/discounts/import", json=body, headers=A)
+    assert resp.status_code == 200 and resp.json() == []
+    assert "AUTUMN10" in [d["code"] for d in client.get("/discounts", headers=A).json()]

@@ -95,14 +95,6 @@ class DiscountCodeOut(BaseModel):
     active: bool
 
 
-class DiscountUsageOut(BaseModel):
-    code: str
-    orders: int
-    units: int
-    customers: int
-    redemptions: int
-
-
 class StatusCount(BaseModel):
     status: str
     count: int
