@@ -8,6 +8,7 @@ endpoint answered with something transient.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from app.async_tasks.worker import QueueWorker, RetryAfter
@@ -25,7 +26,20 @@ from app.services.webhooks import (
 log = logging.getLogger(__name__)
 
 ALERT_TO = "ops@example.com"
+ALERT_COOLDOWN_SECONDS = 300.0
 DELIVERY_COUNTS: dict[str, int] = {}
+_LAST_ALERT: dict[str, float] = {}
+
+
+def _should_alert(endpoint_url: str) -> bool:
+    """One alert per endpoint per cooldown window, so a flapping endpoint
+    does not page ops on every single attempt."""
+    last = _LAST_ALERT.get(endpoint_url)
+    now = time.monotonic()
+    if last is not None and now - last < ALERT_COOLDOWN_SECONDS:
+        return False
+    _LAST_ALERT[endpoint_url] = now
+    return True
 
 
 def _alert(event: WebhookEvent, result: DeliveryResult) -> Message:
@@ -57,8 +71,9 @@ def build_handlers(
         failed = [r for r in results if not r.ok]
         if not failed:
             return
-        if notifications is not None:
-            await notifications.send_batch([_alert(event, r) for r in failed])
+        to_alert = [r for r in failed if _should_alert(r.url)]
+        if notifications is not None and to_alert:
+            await notifications.send_batch([_alert(event, r) for r in to_alert])
         if all(is_retryable(r) for r in failed):
             raise RetryAfter(settings.webhook_retry_after_seconds)
         log.warning("giving up on %s for %d endpoints", event.id, len(failed))

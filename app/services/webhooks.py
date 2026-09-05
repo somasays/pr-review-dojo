@@ -121,3 +121,12 @@ def is_retryable(result: DeliveryResult) -> bool:
     if result.status is not None:
         return result.status in RETRYABLE_STATUS
     return result.error == "timeout"
+
+
+TRANSPORTS: dict[str, type[Transport]] = {"httpx": HttpxTransport}
+
+
+def create_transport(kind: str, client: httpx.AsyncClient) -> Transport:
+    """Build the configured transport. Only "httpx" ships today, but the
+    gateway team has asked about a gRPC option for a future quarter."""
+    return TRANSPORTS[kind](client)

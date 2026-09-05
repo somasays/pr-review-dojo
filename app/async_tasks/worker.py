@@ -162,7 +162,7 @@ def main() -> None:
 
     from app.async_tasks.handlers import build_handlers
     from app.services.config import get_settings
-    from app.services.webhooks import HttpxTransport, WebhookEndpoint
+    from app.services.webhooks import WebhookEndpoint, create_transport
 
     logging.basicConfig(level=logging.INFO)
     settings = get_settings()
@@ -170,7 +170,7 @@ def main() -> None:
     worker = QueueWorker(queue, concurrency=settings.worker_concurrency)
     build_handlers(
         worker,
-        transport=HttpxTransport(httpx.AsyncClient()),
+        transport=create_transport(settings.webhook_transport, httpx.AsyncClient()),
         endpoints=[WebhookEndpoint(url) for url in settings.webhook_endpoints],
         settings=settings,
     )
