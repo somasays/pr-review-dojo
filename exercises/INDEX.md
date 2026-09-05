@@ -32,3 +32,4 @@
 | 23 | test | sqlalchemy | hard | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/66) | - | | |
 | 29 | test | rewrite:spark_streaming | rewrite | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/67) | - | | |
 | 32 | test | rewrite:fastapi | rewrite | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/70) | - | | |
+| 30 | test | spark_streaming | hard | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/72) | - | | |
