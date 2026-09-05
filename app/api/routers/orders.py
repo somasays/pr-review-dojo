@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
+from sqlalchemy import select
 
 from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams
 from app.api.schemas import OrderCreate, OrderEventOut, OrderOut, Page
@@ -66,6 +67,16 @@ def list_order_events(
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
     return service.history(order_id)
+
+
+@router.get("/reports/recent-events", response_model=list[OrderEventOut])
+def list_recent_events(
+    db: DbSession, _admin: AdminPrincipal, limit: int = 50, status: str | None = None
+) -> list[OrderEvent]:
+    stmt = select(OrderEvent).order_by(OrderEvent.occurred_at.desc()).limit(limit)
+    if status:
+        stmt = stmt.where(OrderEvent.to_status == status)
+    return db.scalars(stmt).all()
 
 
 @router.post("/{order_id}/cancel", response_model=OrderOut)

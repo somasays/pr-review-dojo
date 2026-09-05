@@ -138,10 +138,6 @@ class OrderEventRepository:
         return event
 
     def list_for_order(self, order_id: int, limit: int = 100) -> Sequence[OrderEvent]:
-        stmt = (
-            select(OrderEvent)
-            .where(OrderEvent.order_id == order_id)
-            .order_by(OrderEvent.occurred_at, OrderEvent.id)
-            .limit(limit)
-        )
+        stmt = select(OrderEvent).where(OrderEvent.order_id == order_id)
+        stmt = stmt.order_by(OrderEvent.occurred_at, OrderEvent.id).limit(limit)
         return self.session.scalars(stmt).all()

@@ -2,8 +2,7 @@
 
 Every write is idempotent. Creation is keyed by (customer, idempotency_key);
 status changes are guarded by the domain state machine and are no-ops when
-the order is already in the target state. Every accepted transition appends a
-row to `order_events` and stamps `orders.last_event_at`.
+the order is already in the target state.
 """
 
 from __future__ import annotations
@@ -100,7 +99,6 @@ class OrderService:
     def _record_event(
         self, order: Order, previous: OrderStatus | None, target: OrderStatus
     ) -> OrderEvent:
-        """Append one audit row and keep the denormalized stamp on the order in step."""
         occurred_at = datetime.now(UTC)
         event = self.events.add(
             OrderEvent(
@@ -124,7 +122,6 @@ class OrderService:
         return order
 
     def history(self, order_id: int) -> list[OrderEvent]:
-        """Status history for one order, oldest first."""
         return list(self.events.list_for_order(order_id))
 
     def mark_paid(self, order_id: int) -> Order:

@@ -60,7 +60,6 @@ class Order(Base):
         Index("ix_orders_last_event_at", "last_event_at"),
     )
 
-    # SQLite has no BIGINT rowid alias, so keep Integer there for the test database.
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -99,8 +98,6 @@ class OrderItem(Base):
 
 
 class OrderEvent(Base):
-    """Append-only record of every status change an order went through."""
-
     __tablename__ = "order_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

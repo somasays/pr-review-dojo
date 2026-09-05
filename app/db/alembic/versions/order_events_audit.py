@@ -8,7 +8,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.orm import Session
 
 from app.db.models import Order, OrderEvent
 
@@ -43,15 +42,13 @@ def upgrade() -> None:
         ),
     )
 
-    # order_events is expected to grow several times faster than orders, so give the
-    # order key room before the tables get any bigger.
+    # Give the order key room before order_events outgrows it.
     with op.batch_alter_table("orders") as batch_op:
         batch_op.add_column(sa.Column("last_event_at", sa.DateTime(timezone=True), nullable=True))
         batch_op.alter_column("id", type_=sa.BigInteger())
     with op.batch_alter_table("order_items") as batch_op:
         batch_op.alter_column("order_id", type_=sa.BigInteger())
 
-    # Seed one event per existing order so the history is not empty on day one.
     bind = op.get_bind()
     existing = bind.execute(sa.select(Order.id, Order.status, Order.created_at)).all()
     if existing:
@@ -72,11 +69,9 @@ def upgrade() -> None:
             sa.text("UPDATE orders SET last_event_at = created_at WHERE last_event_at IS NULL")
         )
 
-    # orders.updated_at only ever moved on a status change, which order_events records now.
     with op.batch_alter_table("orders") as batch_op:
         batch_op.drop_column("updated_at")
 
-    # CREATE INDEX CONCURRENTLY cannot run inside the migration transaction.
     with op.get_context().autocommit_block():
         op.create_index(
             "ix_orders_last_event_at",
