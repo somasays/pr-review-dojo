@@ -1,19 +1,24 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams
-from app.api.schemas import OrderCreate, OrderOut, Page
+from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams, Payments
+from app.api.schemas import ChargeRequest, OrderCreate, OrderOut, Page
 from app.db.models import Order
 from app.db.repositories import NotFound, OrderRepository
 from app.domain.order_state import InvalidTransition
 from app.services.order_service import CreateOrderCommand
+from app.services.payment_service import PaymentDeclined, PaymentGatewayError
 from app.services.pricing_service import (
     InsufficientStock,
     ItemRequest,
     UnknownDiscountCode,
     UnknownSku,
 )
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -85,3 +90,28 @@ def ship_order(order_id: int, _admin: AdminPrincipal, service: Orders) -> Order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
     except InvalidTransition as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
+@router.post("/{order_id}/charge", response_model=OrderOut)
+def charge_order(
+    order_id: int,
+    body: ChargeRequest,
+    db: DbSession,
+    principal: CurrentPrincipal,
+    payments: Payments,
+) -> Order:
+    try:
+        if not principal.is_admin:
+            OrderRepository(db).get_for_customer(order_id, principal.customer)
+        return payments.charge(order_id, body.card_token)
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
+    except InvalidTransition as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except PaymentDeclined as exc:
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, str(exc)) from exc
+    except PaymentGatewayError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    except Exception:
+        log.exception("charge request failed for order %s", order_id)
+        raise
