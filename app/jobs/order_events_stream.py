@@ -16,6 +16,7 @@ import argparse
 import logging
 import os
 import shutil
+import time
 from uuid import uuid4
 
 from pyspark.sql import DataFrame, SparkSession, Window
@@ -24,6 +25,7 @@ from pyspark.sql.streaming import StreamingQuery
 
 from app.jobs.schemas import CORRUPT_COLUMN, ORDER_EVENTS_RAW_SCHEMA, ORDER_EVENTS_SCHEMA
 from app.jobs.spark_session import get_spark
+from app.services.config import get_settings
 from app.services.notification import InMemorySender, NotificationService
 
 log = logging.getLogger(__name__)
@@ -107,18 +109,30 @@ def dead_letter_batch(
 
 def write_counts(counts: DataFrame, batch_id: int, target: str) -> None:
     """Flatten the window struct and write one batch of the hourly counts."""
-    (
-        counts.select(
-            F.col("window.start").alias("window_start"),
-            F.col("window.end").alias("window_end"),
-            F.col("status"),
-            F.col("count"),
-        )
-        .withColumn("_batch_id", F.lit(batch_id))
-        .write.mode("overwrite")
-        .partitionBy("_batch_id")
-        .parquet(target)
-    )
+    flat = counts.select(
+        F.col("window.start").alias("window_start"),
+        F.col("window.end").alias("window_end"),
+        F.col("status"),
+        F.col("count"),
+    ).withColumn("_batch_id", F.lit(batch_id))
+    if get_settings().env == "dev":
+        log.debug("batch %d writing counts to %s", batch_id, target)
+    _write_counts_with_retry(flat, target)
+
+
+def _write_counts_with_retry(flat: DataFrame, target: str, attempts: int = 3) -> None:
+    """The object store write can fail transiently; retry it a few times before giving up."""
+    delay = 0.2
+    for attempt in range(1, attempts + 1):
+        try:
+            flat.write.mode("overwrite").partitionBy("_batch_id").parquet(target)
+            return
+        except Exception as exc:
+            if attempt == attempts:
+                raise
+            log.warning("counts write attempt %d/%d failed: %s", attempt, attempts, exc)
+            time.sleep(delay)
+            delay *= 2
 
 
 def start(
