@@ -145,9 +145,15 @@ class BatchNotifier:
         if message.dedupe_key in self._seen:
             self.stats.skipped += 1
             return message
-        log.info("sending %s to %s (key=%s)", message.subject, message.to, message.dedupe_key)
-        await self.sender.send(message)
+        # Claim the key before the await, otherwise a concurrent batch with the
+        # same key passes the check above and both sends go out.
         self._seen.add(message.dedupe_key)
+        log.info("sending %s to %s (key=%s)", message.subject, message.to, message.dedupe_key)
+        try:
+            await self.sender.send(message)
+        except BaseException:
+            self._seen.discard(message.dedupe_key)
+            raise
         self.stats.sent += 1
         return message
 
@@ -155,8 +161,13 @@ class BatchNotifier:
         """Send every message and return one result per message, in order."""
         if not messages:
             return []
-        futs = [asyncio.ensure_future(self._send_one(m)) for m in messages]
-        results: list[Message | BaseException] = list(await asyncio.gather(*futs))
+        tasks = [asyncio.create_task(self._send_one(m)) for m in messages]
+        results: list[Message | BaseException] = list(
+            await asyncio.gather(*tasks, return_exceptions=True)
+        )
+        for message, result in zip(messages, results, strict=True):
+            if isinstance(result, BaseException):
+                log.warning("send failed for %s: %r", message.dedupe_key, result)
         log.info(
             "batch of %d done: %d sent, %d skipped",
             len(messages),
