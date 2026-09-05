@@ -99,7 +99,7 @@ _sender = InMemorySender()
 
 
 def get_order_service(db: DbSession, settings: AppSettings) -> OrderService:
-    return OrderService(db, PricingService(), NotificationService(_sender, settings))
+    return OrderService(db, PricingService(db), NotificationService(_sender, settings))
 
 
 Orders = Annotated[OrderService, Depends(get_order_service)]

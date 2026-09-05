@@ -6,7 +6,9 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -92,3 +94,21 @@ class OrderItem(Base):
 
     order: Mapped[Order] = relationship(back_populates="items")
     product: Mapped[Product] = relationship()
+
+
+class DiscountCode(Base):
+    """A redeemable rule. `max_redemptions` is None for codes that never run out."""
+
+    __tablename__ = "discount_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    min_subtotal: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    max_redemptions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    times_redeemed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
