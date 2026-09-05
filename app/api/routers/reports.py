@@ -8,7 +8,6 @@ from fastapi import APIRouter
 from app.api.deps import AdminPrincipal, DbSession, get_rate_limiter
 from app.api.schemas import StatusCount
 from app.db.repositories import OrderRepository
-from app.services.config import get_settings
 from app.services.rate_limiter import seconds_until_reset
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -44,7 +43,6 @@ def format_rate_limit_row(
 @router.get("/rate-limits")
 def rate_limit_usage(_admin: AdminPrincipal) -> list[dict[str, object]]:
     limiter = get_rate_limiter()
-    settings = get_settings()
     now = time.monotonic()
     rows = []
     for key, hits in limiter.snapshot().items():
@@ -52,5 +50,5 @@ def rate_limit_usage(_admin: AdminPrincipal) -> list[dict[str, object]]:
         resets_in = (
             seconds_until_reset(started, limiter.policy.window_seconds, now) if started else 0
         )
-        rows.append(format_rate_limit_row(key, hits, settings.rate_limit_per_minute, resets_in))
+        rows.append(format_rate_limit_row(key, hits, limiter.policy.limit, resets_in))
     return sorted(rows, key=lambda r: r["key"])
