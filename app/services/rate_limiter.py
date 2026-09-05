@@ -92,7 +92,6 @@ class RateLimiter:
             self.sweep()
 
 
-def seconds_until_reset(window_start: float, window_seconds: int) -> int:
+def seconds_until_reset(window_start: float, window_seconds: int, now: float) -> int:
     """How long until the window that started at `window_start` rolls over."""
-    elapsed = time.monotonic() - window_start
-    return max(int(window_seconds - elapsed), 0)
+    return max(int(window_seconds - (now - window_start)), 0)
