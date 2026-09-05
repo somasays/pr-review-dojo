@@ -113,13 +113,7 @@ def backfill_weeks(
 ) -> None:
     """Run the weekly summary one week at a time, so a long backfill does not
     have to hold every week's shuffle in flight at once."""
-    chunks: list[DateRange] = []
-    cur = days.start
-    while cur <= days.end:
-        chunk_end = min(cur + timedelta(days=6), days.end)
-        chunks.append(DateRange(cur, chunk_end))
-        cur = chunk_end + timedelta(days=1)
-    for chunk in chunks:
+    for chunk in days.split(7):
         if not include_current_week and is_current_week(chunk.end):
             continue
         run(spark, paths, chunk)
