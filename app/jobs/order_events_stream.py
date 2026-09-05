@@ -161,6 +161,11 @@ def start(
     return writer.start()
 
 
+def _describe_queries(queries: list[StreamingQuery]) -> str:
+    """One line for the startup log: name or id per active query."""
+    return ", ".join(q.name or q.id for q in queries)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Order events stream")
     parser.add_argument("--source", required=True)
@@ -177,8 +182,8 @@ def main(argv: list[str] | None = None) -> None:
         queries.append(
             start_hourly_counts(spark, args.source, args.counts_target, args.checkpoint, args.once)
         )
+    log.info("started: %s", _describe_queries(queries))
     for q in queries:
-        log.info("query %s started", q.id)
         # One-shot runs should not hang CI.
         q.awaitTermination(timeout=30 if args.once else None)
 
