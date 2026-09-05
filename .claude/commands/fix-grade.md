@@ -9,8 +9,8 @@ Grade the owner's fix for exercise `$ARGUMENTS` (N). Follow CLAUDE.md exactly.
    (cd "$tmp/fix" && ../../.venv/bin/python -m pytest -q -p no:cacheprovider solutions_tests tests; .venv ruff check .; mypy)
    ```
    Use the repo root `.venv/bin/python` with the absolute path. Record hidden passed/total, normal suite result, ruff and mypy results. Remove the worktrees afterward.
-3. `git diff origin/solutions/N...origin/fix/N -- . ':!solutions_tests'` and `git diff origin/ex/N-<slug>...origin/fix/N` to see what the owner changed. Read the answer key issue (`gh issue list --label answer-key --search "Answer key N in:title" --json body`). Score with the fix rubric in CLAUDE.md: defects resolved (root cause gone, weighted by severity), hidden tests, no regressions, proportionality (compare the size and shape of the fix diff with the reference), PR description.
-4. Post the grade comment on the fix PR via `gh pr comment` in the grade template shape (fix rubric sections, defects table with resolved yes/no and how, hidden tests passed/total, coaching). Then post a second comment containing the reference fix as a collapsed block:
+3. `git diff origin/solutions/N...origin/fix/N -- . ':!solutions_tests'` and `git diff origin/ex/N-<slug>...origin/fix/N` to see what the owner changed. Read the answer key issue (`gh issue list --label answer-key --search "Answer key N in:title" --json body`). Score with the fix rubric in CLAUDE.md: findings resolved (every planted item except the clean trap, including design and test findings, root cause gone, weighted by severity), hidden tests, no regressions, proportionality (compare the size and shape of the fix diff with the reference), PR description.
+4. Post the grade comment on the fix PR via `gh pr comment` in the grade template shape (fix rubric sections, findings table with kind, resolved yes/no and how, hidden tests passed/total, coaching). Then post a second comment containing the reference fix as a collapsed block:
    ```
    <details><summary>Reference fix (solutions/N)</summary>
 
