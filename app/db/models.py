@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -27,6 +28,7 @@ class Base(DeclarativeBase):
 
 class Customer(Base):
     __tablename__ = "customers"
+    __table_args__ = (Index("ix_customers_region_name", "region", "name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
@@ -42,6 +44,14 @@ class Customer(Base):
 
 class CustomerAddress(Base):
     __tablename__ = "customer_addresses"
+    __table_args__ = (
+        Index(
+            "uq_customer_default_address",
+            "customer_id",
+            unique=True,
+            sqlite_where=text("is_default"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)

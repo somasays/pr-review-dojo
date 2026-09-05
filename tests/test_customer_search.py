@@ -35,6 +35,17 @@ def test_search_region_filter_narrows_the_result(db, seeded):
     assert repo.search_count("N", ["US-NY"]) == 1
 
 
+def test_search_with_no_region_filter_covers_every_region(db, seeded):
+    repo = CustomerRepository(db)
+    _add(db, "Nina", "US-CA")
+    _add(db, "Noel", "US-NY")
+
+    rows = repo.search("N", [])
+
+    assert sorted(r.name for r in rows) == ["Nina", "Noel"]
+    assert repo.search_count("N", []) == 2
+
+
 def test_search_pages_through_the_matches(db, seeded):
     repo = CustomerRepository(db)
     for name in ["Nina", "Noel", "Nora"]:
@@ -96,8 +107,8 @@ def test_default_address_and_import_have_basic_coverage(db, seeded):
     repo = CustomerRepository(db)
     customer_id = seeded["customer"].id
 
-    first = repo.get_default_address(customer_id, CustomerAddress(line1="1 Main St"))
-    second = repo.get_default_address(customer_id, CustomerAddress(line1="2 Oak Ave"))
+    first = repo.set_default_address(customer_id, CustomerAddress(line1="1 Main St"))
+    second = repo.set_default_address(customer_id, CustomerAddress(line1="2 Oak Ave"))
     db.refresh(first)
     assert first.is_default is False
     assert second.is_default is True
