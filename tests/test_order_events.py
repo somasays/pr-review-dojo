@@ -9,7 +9,7 @@ from app.services.config import Settings
 from app.services.notification import InMemorySender, NotificationService
 from app.services.order_service import OrderService
 from app.services.pricing_service import PricingService
-from conftest import CUSTOMER_KEY
+from conftest import ADMIN_KEY, CUSTOMER_KEY
 
 
 def _service(db: Session) -> OrderService:
@@ -69,5 +69,21 @@ def test_history_endpoint_returns_events_oldest_first(client, seeded) -> None:
 
     resp = client.get(f"/orders/{order_id}/events", headers={"X-API-Key": CUSTOMER_KEY})
     assert resp.status_code == 200
-    assert [e["to_status"] for e in resp.json()] == ["paid", "shipped"]
+    assert [e["to_status"] for e in resp.json()] == ["pending_payment", "paid", "shipped"]
     assert all(e["actor"] == "service" for e in resp.json())
+
+
+def test_recent_events_report_filters_by_status(client, seeded) -> None:
+    body = {
+        "idempotency_key": "recent-events-1",
+        "items": [{"sku": "WIDGET", "quantity": 1}],
+        "discount_codes": [],
+    }
+    created = client.post("/orders", json=body, headers={"X-API-Key": CUSTOMER_KEY})
+    order_id = created.json()["id"]
+    client.post(f"/orders/{order_id}/pay", headers={"X-API-Key": ADMIN_KEY})
+
+    resp = client.get("/orders/reports/recent-events?status=paid", headers={"X-API-Key": ADMIN_KEY})
+    assert resp.status_code == 200
+    assert any(e["to_status"] == "paid" for e in resp.json())
+    assert all(e["to_status"] == "paid" for e in resp.json())

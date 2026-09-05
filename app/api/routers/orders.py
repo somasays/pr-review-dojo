@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
 
-from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams
+from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams, Principal
 from app.api.schemas import OrderCreate, OrderEventOut, OrderOut, Page
 from app.db.models import Order, OrderEvent
-from app.db.repositories import NotFound, OrderRepository
-from app.domain.order_state import InvalidTransition
+from app.db.repositories import NotFound, OrderEventRepository, OrderRepository
+from app.domain.order_state import InvalidTransition, OrderStatus
 from app.services.order_service import CreateOrderCommand
 from app.services.pricing_service import (
     InsufficientStock,
@@ -43,13 +42,16 @@ def list_orders(db: DbSession, principal: CurrentPrincipal, page: PageParams) ->
     return {"items": rows, "limit": page.limit, "offset": page.offset}
 
 
+def _order_for_principal(repo: OrderRepository, order_id: int, principal: Principal) -> Order:
+    if principal.is_admin:
+        return repo.get(order_id)
+    return repo.get_for_customer(order_id, principal.customer)
+
+
 @router.get("/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db: DbSession, principal: CurrentPrincipal) -> Order:
-    repo = OrderRepository(db)
     try:
-        if principal.is_admin:
-            return repo.get(order_id)
-        return repo.get_for_customer(order_id, principal.customer)
+        return _order_for_principal(OrderRepository(db), order_id, principal)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
 
@@ -58,12 +60,8 @@ def get_order(order_id: int, db: DbSession, principal: CurrentPrincipal) -> Orde
 def list_order_events(
     order_id: int, db: DbSession, principal: CurrentPrincipal, service: Orders
 ) -> list[OrderEvent]:
-    repo = OrderRepository(db)
     try:
-        if principal.is_admin:
-            repo.get(order_id)
-        else:
-            repo.get_for_customer(order_id, principal.customer)
+        _order_for_principal(OrderRepository(db), order_id, principal)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
     return service.history(order_id)
@@ -71,12 +69,9 @@ def list_order_events(
 
 @router.get("/reports/recent-events", response_model=list[OrderEventOut])
 def list_recent_events(
-    db: DbSession, _admin: AdminPrincipal, limit: int = 50, status: str | None = None
+    db: DbSession, _admin: AdminPrincipal, limit: int = 50, status: OrderStatus | None = None
 ) -> list[OrderEvent]:
-    stmt = select(OrderEvent).order_by(OrderEvent.occurred_at.desc()).limit(limit)
-    if status:
-        stmt = stmt.where(OrderEvent.to_status == status)
-    return db.scalars(stmt).all()
+    return OrderEventRepository(db).list_recent(limit, status)
 
 
 @router.post("/{order_id}/cancel", response_model=OrderOut)

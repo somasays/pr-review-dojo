@@ -141,3 +141,11 @@ class OrderEventRepository:
         stmt = select(OrderEvent).where(OrderEvent.order_id == order_id)
         stmt = stmt.order_by(OrderEvent.occurred_at, OrderEvent.id).limit(limit)
         return self.session.scalars(stmt).all()
+
+    def list_recent(
+        self, limit: int = 100, to_status: OrderStatus | None = None
+    ) -> Sequence[OrderEvent]:
+        stmt = select(OrderEvent).order_by(OrderEvent.occurred_at.desc()).limit(limit)
+        if to_status is not None:
+            stmt = stmt.where(OrderEvent.to_status == to_status.value)
+        return self.session.scalars(stmt).all()

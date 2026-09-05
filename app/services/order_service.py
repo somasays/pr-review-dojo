@@ -94,12 +94,18 @@ class OrderService:
             winner = self.orders.by_idempotency_key(cmd.customer_id, cmd.idempotency_key)
             assert winner is not None
             return winner
+        self._record_event(order, None, OrderStatus.PENDING_PAYMENT)
+        self.session.flush()
         return order
 
     def _record_event(
-        self, order: Order, previous: OrderStatus | None, target: OrderStatus
+        self,
+        order: Order,
+        previous: OrderStatus | None,
+        target: OrderStatus,
+        now: datetime | None = None,
     ) -> OrderEvent:
-        occurred_at = datetime.now(UTC)
+        occurred_at = now if now is not None else datetime.now(UTC)
         event = self.events.add(
             OrderEvent(
                 order_id=order.id,
