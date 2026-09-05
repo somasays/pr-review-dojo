@@ -36,6 +36,22 @@ class CreateOrderCommand:
     discount_codes: list[str]
 
 
+def format_refund_audit_row(
+    order_id: int,
+    email: str,
+    total: Decimal,
+    reason: str | None,
+    lines: list[tuple[str, Money]],
+) -> str:
+    """CSV line for the support refund spreadsheet. Pure: no session, no IO."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([order_id, email, str(total), reason or ""])
+    for sku, amount in lines:
+        writer.writerow([order_id, sku, str(amount)])
+    return buf.getvalue()
+
+
 class OrderService:
     def __init__(
         self,
@@ -178,11 +194,8 @@ class OrderService:
         order = self.orders.get(order_id)
         if order.total < LARGE_REFUND_THRESHOLD:
             return None
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow([order.id, order.customer.email, str(order.total), reason or ""])
-        for sku, amount in self.refund_lines(order_id):
-            writer.writerow([order.id, sku, str(amount)])
-        row = buf.getvalue()
+        row = format_refund_audit_row(
+            order.id, order.customer.email, order.total, reason, self.refund_lines(order_id)
+        )
         self.notifications.notify_support_of_large_refund(order.id, row)
         return row
