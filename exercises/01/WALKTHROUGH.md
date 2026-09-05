@@ -12,58 +12,73 @@ its per-hunk commentary, then this file.
 
 ## How to read this diff
 
-The PR touches five files. Read them in this order, not in the order GitHub
+The PR touches six files. Read them in this order, not in the order GitHub
 lists them.
 
 1. **`app/db/models.py`.** The schema tells you what the feature really is.
    A new table with a foreign key to `orders`, a new relationship on `Order`.
-   Two questions before you move on: who can write rows to this table, and
-   who reads them. Both answers live in other files, so carry the questions
-   with you.
+   The question to carry forward: what loading strategy does this
+   relationship use, and does the response model that reads it care.
 2. **`app/db/alembic/versions/0003_order_notes.py`.** Check that the
    migration matches the model: same columns, same types, same nullability,
-   an index where the model declares one. A migration that drifts from the
-   model is a production incident that no test in this repo will catch.
+   an index where the model declares one.
 3. **`app/api/schemas.py`.** This is the contract. For a request model, ask
    what a hostile client can put in each field. For a response model, ask
    what a curious client can read out of it.
-4. **`app/api/routers/orders.py`.** Now read the handler, with the two
-   questions from step 1 in hand.
-5. **`app/db/repositories.py`.** Small, but confirm the new method follows
-   the repository rules in this codebase.
+4. **`app/api/deps.py`.** Small diff, easy to skim past. `get_db` is the one
+   function every request in this API depends on, so a change here is never
+   local to the feature that happened to touch it.
+5. **`app/api/routers/orders.py`.** Now read the handler. Compare it to
+   `get_order` right above it and to `cancel_order` below it: same file, same
+   kind of write, different shape.
 6. **`tests/test_api_order_notes.py`.** Read the tests last and read them for
    what they do not cover. Tests tell you what the author was thinking about.
    The gaps tell you what they were not.
 
 ## What to grep for
 
-- `get_for_customer` in `app/api/routers/`. Every route that takes an
-  `order_id` from a customer key uses it. The new one does not. That single
-  grep is the fastest path to the blocker in this diff.
+- `commit(` across `app/api/` and `app/db/`. The only commit in the request
+  path should be the one in `get_db`. Then read what `get_db` actually does,
+  not what its name promises.
 - `lazy=` in `app/db/models.py`. `Order.items` says `lazy="selectin"`, the
   new `Order.notes` says nothing. Whenever a diff adds a relationship and a
   response field in the same change, the loading strategy is a question.
-- `Field(` in `app/api/schemas.py`. Every string field in that module carries
-  a bound except the one this PR adds.
-- `commit(` across `app/api/` and `app/db/`. The only commit in the request
-  path should be the one in `get_db`.
-- `status.HTTP_` in the router. One bare integer in a file of constants.
+- `except` in `app/api/routers/orders.py`. Every handler that can raise
+  `InvalidTransition` needs to catch it. Count the handlers against the count
+  of `except InvalidTransition` blocks.
+- `is_admin` in `app/api/routers/orders.py`. It appears in more than one
+  handler. Read both appearances side by side before deciding whether that is
+  two features or one feature typed twice.
 
 ## The reasoning chain for each finding
 
-**The lookup is not scoped to the caller (Blocker).** The handler takes
-`principal: CurrentPrincipal` and uses it, so at a glance authorization looks
-handled. Look at what it is used for: building the `author` string. That is
-attribution, not authorization. Then look at the lookup: `repo.get(order_id)`
-is the admin path in `get_order`; the customer path there is
-`get_for_customer`. So any customer key can write to any order id. Now finish
-the thought that most reviewers stop short of: the handler returns the order
-through `response_model=OrderOut`, so the attacker does not just write, they
-read back the order's totals, discount code, and line items. A write bug that
-is also a read bug moves to the top of the review.
+**`get_db` stops committing (Blocker).** This is the one finding in this
+exercise that is not in the diff you would naturally scroll to, it is a
+five-line change in a file the feature only touches in passing. The tell is
+in the diff itself: a five-line try/except/finally collapsed into a two-line
+`with` block. Whenever a diff simplifies a resource-management block, ask
+what the original block was doing besides acquiring and releasing the
+resource. Here it was also committing. `Session.__exit__` closes the
+connection, it does not commit, so the shorter version is not equivalent to
+the longer one, it changes behavior for every write in the API. It survives
+the exercise's own test suite because `tests/conftest.py`'s `client` fixture
+overrides `get_db` with its own version that still commits, so nothing in
+this repository's CI would ever catch it. The lesson: a diff to
+infrastructure code that nothing in the feature's own tests exercises is the
+diff that most needs a second look, not less of one.
 
-This is the general shape worth remembering: a principal that is present and
-used is not a principal that is checked.
+**A closed order returns 500 instead of 409 (Major).** Read the terminal
+check next to the `try/except` around it, not inside it. The check calls
+`transition()`, the same function `cancel_order` uses to raise
+`InvalidTransition` for an invalid move, so it can raise here too. Then look
+at what the surrounding `except` clauses catch: only `NotFound`. Every other
+write endpoint in this file, `cancel_order`, `pay_order`, `ship_order`,
+catches `InvalidTransition` and maps it to a 409. This one does not, so the
+one input that reaches that branch, a note on a cancelled or refunded order,
+raises straight through the handler. The way to catch this class of bug is
+to notice a new call to a function you have seen raise before, and check
+that every place it is called new is guarded the way every place it is
+called elsewhere already is.
 
 **Notes load one query per order (Major).** Nobody writes an N+1 on purpose.
 It appears when two safe-looking changes meet: a relationship is added with
@@ -74,11 +89,11 @@ size. `PAGE_SIZE_MAX` is 200, so the answer here is 200 extra queries on an
 endpoint that ran two before. The tell is one line above: `items` is
 `lazy="selectin"` because someone already fought this fight.
 
-Contrast this with the line right below it, `return order`, which hands an
-ORM `Order` to `response_model=OrderOut`. That is the thing on this PR that
-looks wrong and is fine, and it is the false positive this exercise is built
-to catch. `OrderOut` sets `from_attributes=True`, is the allowlist written
-for order responses, and omits `customer_id`, `idempotency_key`, and
+Contrast this with the line right below the write, `return order`, which
+hands an ORM `Order` to `response_model=OrderOut`. That is the thing on this
+PR that looks wrong and is fine, and it is the false positive this exercise
+is built to catch. `OrderOut` sets `from_attributes=True`, is the allowlist
+written for order responses, and omits `customer_id`, `idempotency_key`, and
 `updated_at`, so nothing leaves the process that was not listed. Convention 9
 forbids returning a row through a model that was not written for the
 endpoint, not returning rows at all. Asking "do we want notes on every order
@@ -89,33 +104,71 @@ The lesson from the pair: the lazy strategy, not the shape of the code,
 decides what a relationship costs, and the response model, not the type of
 the returned object, decides what a response exposes.
 
-**The note body is unbounded (Major).** The column is `String(500)`; the
-Pydantic field is a bare `str`. Two failures fall out. An empty note is
-accepted, so the notes list fills with blank rows and there is no delete
-endpoint to remove them. And an over-long note is stored intact on SQLite,
-which is what the tests run on, but raises at flush on Postgres, which is
-what production runs on. Whenever a diff adds a validated input and a sized
-column, read them side by side; a mismatch between the two is invisible to
-every test in the suite.
+## Design and tests
 
-**The handler commits (Minor).** `get_db` commits after the handler returns.
-The handler commits too, so the request commits twice and the transaction
-boundary quietly moved into the handler. Nothing breaks today. It breaks the
-day someone adds a second write after this line, because the first half is
-already committed. Convention 8 exists so that no handler author has to think
-about this.
+A strong reviewer keeps reading past "does it work" into "will the next
+change to this file be easy or painful." Two structural comments and one
+opportunity fall out of that question here, plus one gap in the test itself.
 
-**The bare 404 and the docstring that promises 201 (Nits).** Neither changes
-behavior. Say them once, say them briefly, and make sure the summary marks
-them as non-blocking. A review that spends the same number of words on a
-literal `404` as on an authorization hole has told the author nothing about
-priority.
+**The handler bypasses `OrderService` (Major, design).** `create_order`,
+`cancel_order`, `pay_order`, and `ship_order` all take a `service: Orders`
+parameter and do their writes through it. `add_order_note` does not: it
+builds the note row and writes it through `OrderRepository` directly, in the
+handler. You notice this the same way you notice a missing import, by
+pattern-matching against the four sibling functions in the same file before
+you read the fifth one closely. The consequence is not that this specific
+write is wrong today, the consequence is that the transition rule (no notes
+on a closed order) now lives in the router instead of next to `cancel`,
+`ship`, and `pay` in the service, so the next person who needs that rule from
+a worker or a script has nowhere to call it from without duplicating it.
+
+**The ownership branch is copied, not shared (Minor, design).** `get_order`
+and `add_order_note` both have the identical four lines: if the principal is
+an admin, `repo.get(order_id)`, otherwise `repo.get_for_customer(order_id,
+principal.customer)`. You catch this by literally comparing the two
+functions, which is worth doing whenever a new handler needs the same kind of
+lookup an existing handler already has. Two copies is not a bug by itself,
+today they say the same thing. It becomes a bug the day someone changes the
+ownership rule in one copy, for a good reason specific to that endpoint, and
+forgets the other one exists.
+
+**The author label is a refactor opportunity, not a defect (Minor,
+refactor).** `author = "admin" if principal.is_admin else
+f"customer:{principal.customer}"` sits between the lookup and the write. It
+is correct, it is short, and nobody should block a merge on it. The reason a
+strong reviewer still mentions it: it is a piece of string formatting living
+inside a function that also does authorization and persistence, and pulling
+it into a one-line named function costs nothing and makes the handler read
+as a sequence of steps. The signal that separates a refactor comment from a
+design comment is exactly this: would you approve the PR as it stands. Here
+the answer is yes.
+
+**The length test never reaches the boundary it is testing (Major, test).**
+`OrderNoteIn.body` is bound to 500 characters, matching the `String(500)`
+column. The shipped test checks a 10-character body and an 800-character
+body. Read every test that exercises a bound (a max length, a page size cap,
+a day count) and ask what value it actually passes, not what the test's name
+claims to check. A test with the right idea and the wrong numbers passes
+today and stays green through an off-by-one in the code it is supposed to
+guard.
+
+Two questions an interviewer might ask about these four:
+
+1. The design comment says the handler should go through `OrderService`. If
+   `add_order_note` needs to stay a one-liner and the service is for writes
+   that also send notifications or touch stock, is the layering violation
+   still worth blocking on? What would change your answer?
+2. You have a refactor comment and a design comment that both live in the
+   same handler. What separates a comment you would block a merge on from
+   one you would leave as "worth doing sometime"? Point at the exact
+   difference between the ownership-branch comment and the author-label
+   comment.
 
 ## Questions to ask the author
 
-- Should a customer be able to add notes at all, or is this a support tool?
-  The answer changes whether the endpoint needs a customer path.
-- What happens to notes when an order is cancelled or refunded?
+- What happens to notes when an order is cancelled or refunded? The terminal
+  check in this diff answers "nothing, it is rejected", but nothing in the
+  PR description says that was a deliberate choice.
 - Is `author` meant to be readable by the customer? `customer:<id>` and
   `admin` are both visible in the response today.
 - Do you expect notes to be edited or deleted later? If yes, the endpoint
@@ -123,19 +176,19 @@ priority.
 
 ## Five questions an interviewer would ask about the rewrite
 
-1. You fixed the N+1 with `lazy="selectin"` on the relationship rather than
+1. The session-dependency fix restores five lines that a two-line version
+   replaced. How would you explain to a teammate why the shorter version was
+   wrong without them running the code, just from reading it?
+2. You fixed the N+1 with `lazy="selectin"` on the relationship rather than
    `selectinload` in the repository. When would you make the opposite choice,
    and what does each cost the caller who does not want notes?
-2. The ownership fix returns 404 for an order that exists but belongs to
-   someone else. Argue for 403, then argue against it. What does each choice
-   leak, and which one matches the rest of this router?
-3. You bounded the note body at 500 to match the column. If product comes
-   back and asks for 5000 character notes, what changes, and in which order do
-   you ship the model change, the migration, and the schema change so that no
-   deploy window is broken?
-4. Removing `db.commit()` from the handler changes nothing observable today.
-   How would you convince a reviewer who says "it works either way, leave it"?
-   What is the failure this prevents?
-5. The hidden test for the N+1 counts SQL statements and asserts at most five.
-   What is fragile about that test, and what would you assert instead if this
-   endpoint were on a hot path you had to defend for a year?
+3. Moving the write into `OrderService.add_note` also moved the terminal
+   check with it. What would you lose if you had fixed only the 409 mapping
+   in the router and left the write where it was?
+4. The rewrite adds `_scope_order`, shared by two call sites. At what number
+   of call sites does an extraction like this stop paying for itself, and
+   what would the third caller need to look like for the shared helper to no
+   longer be the right shape?
+5. The hidden test for the N+1 counts SQL statements and asserts at most
+   five. What is fragile about that test, and what would you assert instead
+   if this endpoint were on a hot path you had to defend for a year?
