@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import time
-
 from app.services.rate_limiter import RateLimiter, RateLimitPolicy, seconds_until_reset
 
 
@@ -39,10 +37,12 @@ def test_window_restarts_once_it_has_elapsed() -> None:
     assert limiter.hit("key-a").allowed is True
 
 
-def test_sweep_drops_keys_older_than_two_windows() -> None:
+def test_sweep_drops_keys_older_than_two_windows(monkeypatch) -> None:
     limiter = _limiter(limit=5, window=1)
+    clock = [1_000.0]
+    monkeypatch.setattr("app.services.rate_limiter.time.monotonic", lambda: clock[0])
     limiter.hit("stale")
-    limiter._window_start["stale"] = time.monotonic() - 10
+    clock[0] += 10
     limiter.hit("fresh")
     assert limiter.sweep() == 1
     assert limiter.snapshot() == {"fresh": 1}
