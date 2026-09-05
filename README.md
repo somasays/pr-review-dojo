@@ -32,7 +32,8 @@ Every `foreachBatch` write is a full merge, so replaying a batch is safe.
 
 A second query on the same source keeps `paid_order_counts`, one row per
 `customer_id` with the number of orders that have reached `paid`. It is not
-partitioned by `dt`: the count is a running total, not a daily slice.
+partitioned by `dt`: the count is a running total, not a daily slice. A third
+query keeps `customer_running_totals`, the lifetime paid amount per customer.
 
 ## Conventions
 
