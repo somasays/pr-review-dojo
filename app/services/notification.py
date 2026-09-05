@@ -130,6 +130,15 @@ class NotificationFlusher:
         with self._queue_lock:
             return len(self._pending)
 
+    def digest(self) -> str:
+        """One-line summary of flusher activity for the ops report."""
+        parts = [f"pending={self.pending_count()}", f"sent_total={self.sent_total}"]
+        if self.errors:
+            parts.append(f"errors={len(self.errors)} last={self.errors[-1]}")
+        else:
+            parts.append("errors=0")
+        return ", ".join(parts)
+
     def _run(self) -> None:
         while not self._stopped:
             time.sleep(self.flush_seconds)
