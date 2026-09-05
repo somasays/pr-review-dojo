@@ -7,6 +7,7 @@ from app.api.deps import AdminPrincipal, DbSession
 from app.api.schemas import DiscountCodeCreate, DiscountCodeOut
 from app.db.models import DiscountCode
 from app.db.repositories import DiscountCodeRepository, NotFound
+from app.db.session import get_session_factory
 from app.services.config import get_settings
 
 router = APIRouter(prefix="/discounts", tags=["discounts"])
@@ -48,12 +49,14 @@ def import_discounts(
     for item in body:
         row = _to_row(item)
         try:
-            db.add(row)
-            db.flush()
+            with db.begin_nested():
+                db.add(row)
+                db.flush()
         except IntegrityError:
             skipped.append(row.code)
     if dry_run:
         db.rollback()
+    print("codes on file:", len(DiscountCodeRepository(get_session_factory()()).list_all()))
     return skipped
 
 
