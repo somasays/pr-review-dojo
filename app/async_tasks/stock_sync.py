@@ -1,8 +1,7 @@
 """Stock sync: pull supplier inventory and refresh the product catalog.
 
-The supplier gateway is remote and slow, so the SKU fetches run concurrently
-on the event loop and the database write happens once, in a thread, after
-every level for the batch has arrived.
+The SKU fetches run concurrently on the event loop; the write happens once,
+in a thread, after every level for the batch has arrived.
 """
 
 from __future__ import annotations
@@ -17,11 +16,13 @@ from app.async_tasks.worker import QueueWorker, Task
 from app.db.repositories import ProductRepository
 from app.db.session import session_scope
 from app.services.config import get_settings
+from app.services.notification import InMemorySender, Message
 from app.services.supplier import HttpSupplierClient, SupplierClient, SupplierStock
 
 log = logging.getLogger(__name__)
 
 DEFAULT_CHUNK = 50
+LOW_STOCK_THRESHOLD = 5
 
 
 @dataclass
@@ -104,6 +105,28 @@ class StockSyncService:
         """Entry point for the admin CLI, which is synchronous."""
         loop = asyncio.new_event_loop()
         return loop.run_until_complete(self.sync_skus(skus))
+
+
+async def notify_low_stock(levels: Sequence[SupplierStock], sender: InMemorySender) -> list[str]:
+    """Alert ops about SKUs that landed below the threshold."""
+    alerted: list[str] = []
+    for level in levels:
+        if level.quantity >= LOW_STOCK_THRESHOLD:
+            continue
+        message = Message(
+            to="ops@example.com",
+            subject=f"Low stock: {level.sku}",
+            body=f"{level.sku} is down to {level.quantity}, below {LOW_STOCK_THRESHOLD}.",
+            dedupe_key=f"low-stock:{level.sku}",
+        )
+        for _ in range(3):
+            try:
+                sender.send(message)
+                alerted.append(level.sku)
+                break
+            except ConnectionError:
+                continue
+    return alerted
 
 
 def register_handlers(worker: QueueWorker, service: StockSyncService) -> None:
