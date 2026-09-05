@@ -55,7 +55,7 @@ class OrderItemOut(BaseModel):
 
 
 class OrderNoteIn(BaseModel):
-    body: str
+    body: str = Field(min_length=1, max_length=500)
 
 
 class OrderNoteOut(BaseModel):
