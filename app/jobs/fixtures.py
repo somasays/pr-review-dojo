@@ -77,3 +77,43 @@ def write_events_fixture(source_dir: str, with_duplicate: bool = True) -> None:
     with open(f"{source_dir}/events-0001.json", "w") as f:
         for e in events:
             f.write(json.dumps(e) + "\n")
+
+
+PAYMENT_EVENTS = [
+    ("pe1", "p1", 1, "authorized", "10.50", 0),
+    ("pe2", "p1", 1, "captured", "10.50", 1),
+    ("pe3", "p2", 2, "authorized", "20.00", 0),
+    ("pe4", "p2", 2, "failed", "20.00", 2),
+    ("pe5", "p3", 3, "failed", "5.25", 1),
+    ("pe6", "p4", 4, "captured", "100.00", 3),
+]
+
+
+def payment_event_lines(with_duplicate: bool = True) -> list[str]:
+    """One JSON object per line, in the shape the payment topic emits."""
+    base = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+    rows = list(PAYMENT_EVENTS)
+    if with_duplicate:
+        rows.append(PAYMENT_EVENTS[1])
+    lines = []
+    for event_id, payment_id, order_id, status, amount, offset in rows:
+        lines.append(
+            json.dumps(
+                {
+                    "event_id": event_id,
+                    "payment_id": payment_id,
+                    "order_id": order_id,
+                    "status": status,
+                    "amount": amount,
+                    "event_time": (base + timedelta(minutes=offset)).isoformat(),
+                }
+            )
+        )
+    return lines
+
+
+def write_payment_events_fixture(source_dir: str, with_duplicate: bool = True) -> None:
+    os.makedirs(source_dir, exist_ok=True)
+    with open(f"{source_dir}/payments-0001.json", "w") as f:
+        for line in payment_event_lines(with_duplicate):
+            f.write(line + "\n")
