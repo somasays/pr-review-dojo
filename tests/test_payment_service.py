@@ -90,3 +90,18 @@ def test_declined_card_raises(db, order, sender):
     assert exc.value.reason == "insufficient_funds"
     assert order.status == "pending_payment"
     assert sender.sent == []
+
+
+def test_charge_sends_the_configured_api_key(db, order, sender):
+    seen_headers: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_headers.append(dict(request.headers))
+        return _approve(request)
+
+    service = _service(db, sender, handler)
+    service.api_key = "sk_test_123"
+
+    service.charge(order.id, "tok_visa")
+
+    assert seen_headers[0]["authorization"] == "Bearer sk_test_123"
