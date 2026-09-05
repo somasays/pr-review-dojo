@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
 
 from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, PageParams
 from app.api.schemas import AddressIn, CustomerCreate, CustomerOut, CustomerSearchPage, Page
@@ -82,11 +81,9 @@ def set_default_address(
     db: DbSession, _admin: AdminPrincipal, customer_id: int, body: AddressIn
 ) -> dict[str, object]:
     """Add an address for the customer and make it their default shipping address."""
-    if db.execute(select(Customer.id).where(Customer.id == customer_id)).first() is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "customer not found")
-    address = CustomerRepository(db).get_default_address(
-        customer_id, CustomerAddress(line1=body.line1)
-    )
+    repo = CustomerRepository(db)
+    repo.get(customer_id)
+    address = repo.get_default_address(customer_id, CustomerAddress(line1=body.line1))
     return {"id": address.id, "line1": address.line1}
 
 
