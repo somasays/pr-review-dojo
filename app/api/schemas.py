@@ -5,7 +5,7 @@ Response models are explicit allowlists. Never return ORM rows directly.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -78,6 +78,33 @@ class Page[T](BaseModel):
 class StatusCount(BaseModel):
     status: str
     count: int
+
+
+class PeriodOut(BaseModel):
+    start: date
+    end: date
+
+
+class WeekCount(BaseModel):
+    start: date
+    end: date
+    orders: int
+
+
+class ActivityOut(BaseModel):
+    span_start: date
+    span_end: date
+    requested_days: int
+    covered_days: int
+    duplicate_days: int
+    business_days: int
+    orders: int
+    first_active_day: date
+    last_active_day: date
+    active_days: int
+    active_periods: list[PeriodOut]
+    weekly_orders: list[WeekCount]
+    next_report_day: date
 
 
 class ErrorOut(BaseModel):
