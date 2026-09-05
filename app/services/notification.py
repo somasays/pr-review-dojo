@@ -84,3 +84,13 @@ class NotificationService:
                 dedupe_key=f"order-cancelled:{order_id}",
             )
         )
+
+    def export_ready(self, email: str, order_id: int) -> None:
+        self._deliver(
+            Message(
+                to=email,
+                subject="Your order export is ready",
+                body=f"Export for order {order_id} is ready to download.",
+                dedupe_key=f"export-ready:{order_id}",
+            )
+        )

@@ -10,9 +10,9 @@ from app.api.schemas import ExportPageOut, ExportRowOut, StatusCount
 from app.db.repositories import OrderRepository
 from app.services.export_service import (
     DEFAULT_WINDOW_DAYS,
-    ExportFilters,
     InvalidCursor,
     build_export,
+    window_filters,
 )
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -42,9 +42,7 @@ def export_order_history(
     limit: Annotated[int, Query(ge=1, le=1000)] = 500,
     cursor: str | None = None,
 ) -> ExportPageOut:
-    end = datetime.now(tz=UTC)
-    window_start = end - timedelta(days=days)
-    filters = ExportFilters(status or [], window_start, end, limit, cursor)
+    filters = window_filters(status or [], days, limit, cursor)
     try:
         page = build_export(db, principal.customer, filters)
     except InvalidCursor as exc:
