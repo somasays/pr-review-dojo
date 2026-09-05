@@ -149,6 +149,36 @@ Note how the rewrite handles it: the comparison is not flipped, it is deleted
 along with the rest of the discount arithmetic. Rewriting a line you were
 suspicious of is not the same as fixing it.
 
+## Design and tests
+
+A strong reviewer notices each of the four design findings the same way this
+walkthrough does: read the return value first, then ask which job each
+section of the function is doing, then check whether that job already has a
+home elsewhere in the codebase. The god function, the nesting, the duplicated
+tax table, and the narrating comments all turn up on that same pass, not on
+four separate readings. What makes them findings rather than taste is that
+each one names a concrete cost: two copies of the tax table will drift, six
+levels of nesting separate a rule from its error message, and a comment that
+restates its line will go stale the day the line changes.
+
+The test finding is different because it is not in the production file at
+all. A reviewer who reads `tests/test_checkout.py` after the smells, instead
+of skipping it as boilerplate, notices that `test_empty_cart_is_rejected`
+catches `pytest.raises(Exception)` for a function that raises exactly one
+kind of error with exactly one message. The tell is the same one that flags a
+broad `pytest.raises` anywhere: the assertion is wider than the thing it is
+supposed to pin down, so a future change that broke the contract in a
+different way, say a `TypeError` from a typo, would still show green.
+
+Two interviewer questions:
+
+1. If you had found only the god function and none of the other three
+   smells, would you still have flagged the empty-cart test? What in the
+   test itself, independent of the production code, gives it away?
+2. `pytest.raises(ValueError)` with no `match` argument would already be an
+   improvement over `pytest.raises(Exception)`. Why does the reference fix
+   also assert the message, and when would you stop short of that?
+
 ## Questions to ask the author
 
 - The PR note says the region rates match `TAX_RATES`. What stopped you from
