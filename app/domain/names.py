@@ -6,8 +6,6 @@ what a split looks like.
 
 from __future__ import annotations
 
-from app.db.models import Customer
-
 SUFFIXES = frozenset({"jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "phd", "md"})
 
 
@@ -34,8 +32,8 @@ def join_name(first_name: str, last_name: str) -> str:
     return " ".join(part for part in (first_name.strip(), last_name.strip()) if part)
 
 
-def display_name_for(customer: Customer) -> str:
-    """The name to show for a customer, preferring the split columns once backfilled."""
-    if customer.first_name or customer.last_name:
-        return join_name(customer.first_name, customer.last_name)
-    return customer.name
+def display_name_for(first_name: str, last_name: str, legacy_name: str) -> str:
+    """The name to show, preferring the split columns once backfilled."""
+    if first_name or last_name:
+        return join_name(first_name, last_name)
+    return legacy_name

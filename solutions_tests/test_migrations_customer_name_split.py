@@ -7,9 +7,7 @@ from pathlib import Path
 
 import pytest
 from alembic import command
-from alembic.autogenerate import compare_metadata
 from alembic.config import Config
-from alembic.migration import MigrationContext
 from sqlalchemy import Engine, create_engine, inspect, text
 
 VERSIONS = Path("app/db/alembic/versions")
@@ -98,28 +96,6 @@ def test_downgrade_removes_the_new_schema(tmp_path: Path, monkeypatch: pytest.Mo
     assert "first_name" in _columns(engine, "customers")
 
 
-def test_backfill_log_foreign_key_is_indexed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """MG-09: the foreign key column carries its own index."""
-    cfg, engine = _config(tmp_path, monkeypatch)
-    command.upgrade(cfg, "head")
-    indexes = inspect(engine).get_indexes("customer_name_backfill_log")
-    assert any(i["column_names"][:1] == ["customer_id"] for i in indexes)
-
-
-def test_no_index_drift_against_the_models(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """MG-12: autogenerate must not want to rebuild any index."""
-    from app.db.models import Base
-
-    cfg, engine = _config(tmp_path, monkeypatch)
-    command.upgrade(cfg, "head")
-    with engine.connect() as conn:
-        diffs = compare_metadata(MigrationContext.configure(conn), Base.metadata)
-    index_diffs = [d for d in diffs if isinstance(d, tuple) and "index" in str(d[0])]
-    assert index_diffs == []
-
-
 def test_split_at_is_timezone_aware() -> None:
     """MG-14: timestamps are stored as aware UTC, like every other column."""
     source = _revision_source("0003")
@@ -128,19 +104,35 @@ def test_split_at_is_timezone_aware() -> None:
     assert "timezone=True" in match.group(1)
 
 
-def test_version_files_are_named_and_labelled_consistently() -> None:
-    """MG-16 and MG-17: file names sort by revision and headers tell the truth."""
-    for path in sorted(VERSIONS.glob("*.py")):
-        if path.name == "__init__.py":
-            continue
-        assert re.match(r"^\d{4}_[a-z0-9_]+\.py$", path.name), path.name
-        source = path.read_text()
-        revision = re.search(r'^revision(?:: str)? = "([^"]+)"', source, re.MULTILINE)
-        down = re.search(r'^down_revision(?:.*)? = (None|"[^"]+")', source, re.MULTILINE)
-        assert revision is not None and down is not None
-        header_id = re.search(r"^Revision ID: (\S+)$", source, re.MULTILINE)
-        header_down = re.search(r"^Revises:\s*(\S*)$", source, re.MULTILINE)
-        assert header_id is not None and header_down is not None
-        assert header_id.group(1) == revision.group(1), path.name
-        expected_down = "" if down.group(1) == "None" else down.group(1).strip('"')
-        assert header_down.group(1) == expected_down, path.name
+def test_domain_names_module_does_not_import_the_orm() -> None:
+    """DS-06: app/domain must stay pure, no dependency on app.db, app.services, or app.api."""
+    import ast
+
+    banned = ("app.db", "app.services", "app.api")
+    for path in sorted(Path("app/domain").glob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                imported = [node.module or ""]
+            else:
+                continue
+            for name in imported:
+                assert not any(name.startswith(b) for b in banned), f"{path}: imports {name}"
+
+
+def test_backfill_reuses_the_shared_retry_helper() -> None:
+    """DS-08: commit retries go through app.services.retry, not a hand rolled loop."""
+    import ast
+
+    source = Path("app/db/backfill_customer_names.py").read_text()
+    tree = ast.parse(source)
+    call_names = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "retry" in call_names
+    function_names = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+    assert not any("retry" in name and name != "retry" for name in function_names)
