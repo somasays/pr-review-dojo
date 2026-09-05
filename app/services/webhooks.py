@@ -18,6 +18,7 @@ from typing import Any, Protocol
 import httpx
 
 from app.services.config import Settings, get_settings
+from app.services.retry import RetryPolicy
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +67,9 @@ class WebhookDispatcher:
         self.transport = transport
         self.attempts = settings.webhook_attempts
         self.timeout = settings.webhook_timeout_ms / 1000
-        self.backoff_seconds = settings.notify_backoff_seconds
+        self.backoff = RetryPolicy(
+            attempts=settings.webhook_attempts, backoff_seconds=settings.notify_backoff_seconds
+        )
         self.sem = asyncio.Semaphore(settings.webhook_max_parallel)
         self._delivered: set[str] = set()
 
@@ -89,7 +92,7 @@ class WebhookDispatcher:
         last = DeliveryResult(endpoint.url, ok=False, error="not attempted")
         for attempt in range(1, self.attempts + 1):
             if attempt > 1:
-                await asyncio.sleep(self.backoff_seconds * (attempt - 1))
+                await asyncio.sleep(self.backoff.delay(attempt))
             try:
                 status = await asyncio.wait_for(
                     self.transport.post(endpoint.url, event.body()), timeout=self.timeout
@@ -122,12 +125,3 @@ def is_retryable(result: DeliveryResult) -> bool:
     if result.status is not None:
         return result.status in RETRYABLE_STATUS
     return result.error == "timeout"
-
-
-TRANSPORTS: dict[str, type[Transport]] = {"httpx": HttpxTransport}
-
-
-def create_transport(kind: str, client: httpx.AsyncClient) -> Transport:
-    """Build the configured transport. Only "httpx" ships today, but the
-    gateway team has asked about a gRPC option for a future quarter."""
-    return TRANSPORTS[kind](client)

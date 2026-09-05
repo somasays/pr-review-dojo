@@ -31,11 +31,12 @@ DELIVERY_COUNTS: dict[str, int] = {}
 _LAST_ALERT: dict[str, float] = {}
 
 
-def _should_alert(endpoint_url: str) -> bool:
+def _should_alert(endpoint_url: str, now: float | None = None) -> bool:
     """One alert per endpoint per cooldown window, so a flapping endpoint
     does not page ops on every single attempt."""
+    if now is None:
+        now = time.monotonic()
     last = _LAST_ALERT.get(endpoint_url)
-    now = time.monotonic()
     if last is not None and now - last < ALERT_COOLDOWN_SECONDS:
         return False
     _LAST_ALERT[endpoint_url] = now

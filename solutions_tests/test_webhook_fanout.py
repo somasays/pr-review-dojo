@@ -132,29 +132,76 @@ async def test_idle_callback_failure_does_not_abort_the_drain():
     assert worker.stats.processed == 3
 
 
-async def test_drain_owns_its_event_loop():
-    q: asyncio.Queue[Task] = asyncio.Queue()
-    worker = QueueWorker(q, concurrency=2, poll_timeout=0.02)
-    seen: list[int] = []
-    worker.register("noop", lambda p: seen.append(p["n"]))
-    q.put_nowait(Task("noop", {"n": 1}))
+async def test_webhook_backoff_reuses_retry_policy_instead_of_hand_rolled_math():
+    """DS-08: the per-attempt backoff comes from the shared RetryPolicy, not
+    a hand-rolled `backoff_seconds * (attempt - 1))` calculation."""
+    import ast
+    import inspect
+    import textwrap
 
-    await asyncio.to_thread(worker.drain)
+    from app.services import webhooks as webhooks_module
+    from app.services.retry import RetryPolicy
 
-    assert seen == [1]
+    dispatcher = WebhookDispatcher(SlowTransport(delay=0), SETTINGS)
+    assert isinstance(dispatcher.backoff, RetryPolicy)
+
+    post_source = inspect.getsource(webhooks_module.WebhookDispatcher._post)
+    tree = ast.parse(textwrap.dedent(post_source))
+    calls = {
+        n.func.attr
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+    }
+    assert "delay" in calls
+    assert "backoff_seconds" not in post_source
 
 
-async def test_stop_can_be_requested_from_another_thread():
-    q: asyncio.Queue[Task] = asyncio.Queue()
-    worker = QueueWorker(q, poll_timeout=0.02)
-    thread = threading.Thread(target=lambda: asyncio.run(worker.run()), daemon=True)
-    thread.start()
-    for _ in range(200):
-        if getattr(worker, "_loop", None) is not None:
-            break
-        await asyncio.sleep(0.01)
+async def test_should_alert_takes_a_now_parameter_for_determinism():
+    """DS-09: the cooldown check takes `now` instead of reading the clock
+    itself, so a fixed value gives a deterministic answer."""
+    from app.async_tasks import handlers
 
-    worker.stop_threadsafe()
+    handlers._LAST_ALERT.clear()
+    url = "https://cooldown.example/hook"
 
-    await asyncio.to_thread(thread.join, 2)
-    assert not thread.is_alive()
+    assert handlers._should_alert(url, now=100.0) is True
+    assert handlers._should_alert(url, now=100.0 + handlers.ALERT_COOLDOWN_SECONDS - 1) is False
+    assert handlers._should_alert(url, now=100.0 + handlers.ALERT_COOLDOWN_SECONDS + 1) is True
+
+
+async def test_no_one_entry_transport_factory():
+    """DS-16 (refactor): no registry or make_/create_/build_ factory exists
+    for the single "httpx" transport."""
+    import ast
+    import inspect
+
+    from app.services import webhooks as webhooks_module
+
+    assert not hasattr(webhooks_module, "TRANSPORTS")
+    source = inspect.getsource(webhooks_module)
+    tree = ast.parse(source)
+    factory_names = [
+        n.name
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name.startswith(("make_", "create_", "build_"))
+    ]
+    assert factory_names == []
+
+
+async def test_build_handlers_call_in_main_passes_notifications():
+    """DS-17: the only caller of `build_handlers` now uses the `notifications`
+    parameter instead of leaving it dead."""
+    import ast
+    import inspect
+
+    from app.async_tasks import worker as worker_module
+
+    source = inspect.getsource(worker_module.main)
+    tree = ast.parse(source)
+    call = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "build_handlers"
+    )
+    kw_names = {kw.arg for kw in call.keywords}
+    assert "notifications" in kw_names

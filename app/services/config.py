@@ -44,7 +44,6 @@ class Settings:
     webhook_attempts: int = 3
     webhook_max_parallel: int = 8
     webhook_retry_after_seconds: float = 30.0
-    webhook_transport: str = "httpx"
     data_lake_root: str = "./data"
     page_size_max: int = 200
 
@@ -73,7 +72,6 @@ def load_settings() -> Settings:
         webhook_attempts=_int("WEBHOOK_ATTEMPTS", 3),
         webhook_max_parallel=_int("WEBHOOK_MAX_PARALLEL", 8),
         webhook_retry_after_seconds=float(os.environ.get("WEBHOOK_RETRY_AFTER_SECONDS", "30")),
-        webhook_transport=os.environ.get("WEBHOOK_TRANSPORT", "httpx"),
         data_lake_root=os.environ.get("DATA_LAKE_ROOT", "./data"),
         page_size_max=_int("PAGE_SIZE_MAX", 200),
     )

@@ -177,7 +177,8 @@ def main() -> None:
 
     from app.async_tasks.handlers import build_handlers
     from app.services.config import get_settings
-    from app.services.webhooks import WebhookEndpoint, create_transport
+    from app.services.notification import InMemorySender, NotificationService
+    from app.services.webhooks import HttpxTransport, WebhookEndpoint
 
     logging.basicConfig(level=logging.INFO)
     settings = get_settings()
@@ -185,9 +186,10 @@ def main() -> None:
     worker = QueueWorker(queue, concurrency=settings.worker_concurrency)
     build_handlers(
         worker,
-        transport=create_transport(settings.webhook_transport, httpx.AsyncClient()),
+        transport=HttpxTransport(httpx.AsyncClient()),
         endpoints=[WebhookEndpoint(url) for url in settings.webhook_endpoints],
         settings=settings,
+        notifications=NotificationService(InMemorySender(), settings),
     )
     serve_admin(worker)
     worker.drain()

@@ -17,6 +17,16 @@ class StubTransport:
         return self.status
 
 
+class FlakyTransport:
+    def __init__(self, status: int) -> None:
+        self.status = status
+        self.calls = 0
+
+    async def post(self, url: str, body: dict) -> int:
+        self.calls += 1
+        return self.status
+
+
 async def test_fan_out_posts_to_every_endpoint():
     transport = StubTransport()
     dispatcher = WebhookDispatcher(transport, SETTINGS)
@@ -30,3 +40,25 @@ async def test_fan_out_posts_to_every_endpoint():
         "kind": "order.paid",
         "data": {"order_id": 7},
     }
+
+
+async def test_fan_out_stops_after_one_attempt_on_a_non_retryable_status():
+    transport = FlakyTransport(400)
+    dispatcher = WebhookDispatcher(transport, SETTINGS)
+
+    results = await dispatcher.fan_out(EVENT, [HOOK_A])
+
+    assert results[0].ok is False
+    assert results[0].status == 400
+    assert transport.calls == 1
+
+
+async def test_fan_out_exhausts_attempts_on_a_retryable_status():
+    transport = FlakyTransport(503)
+    dispatcher = WebhookDispatcher(transport, SETTINGS)
+
+    results = await dispatcher.fan_out(EVENT, [HOOK_A])
+
+    assert results[0].ok is False
+    assert results[0].status == 503
+    assert transport.calls == SETTINGS.webhook_attempts
