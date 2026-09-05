@@ -4,6 +4,7 @@ import ast
 import glob
 import inspect
 import os
+import typing
 from datetime import date
 from decimal import Decimal
 
@@ -112,8 +113,8 @@ def test_is_current_week_takes_a_fixed_today():
 def test_backfill_weeks_has_no_boolean_mode_switch():
     """The two behaviors (include or skip the current week) must not be one
     function switched by a bool; call run() directly for the in-progress week."""
-    sig = inspect.signature(backfill_weeks)
-    bool_params = [p for p in sig.parameters.values() if p.annotation is bool]
+    hints = typing.get_type_hints(backfill_weeks)
+    bool_params = [name for name, hint in hints.items() if hint is bool]
     assert not bool_params
 
 
