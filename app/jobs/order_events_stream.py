@@ -94,11 +94,8 @@ def batch_paid_counts(batch: DataFrame) -> DataFrame:
     An order can appear more than once in a batch (a retried producer send,
     or two paid events for the same order), so orders are counted once.
     """
-    return (
-        batch.select("customer_id", "order_id")
-        .distinct()
-        .groupBy("customer_id")
-        .agg(F.count("*").cast("int").alias("paid_count"))
+    return batch.groupBy("customer_id").agg(
+        F.countDistinct("order_id").cast("int").alias("paid_count")
     )
 
 
