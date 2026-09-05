@@ -97,14 +97,50 @@ def run(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataFrame:
     return weekly
 
 
+def is_current_week(day: date) -> bool:
+    """True when day falls in the week that has not finished yet."""
+    return week_start(day) == week_start(date.today())
+
+
+def backfill_weeks(
+    spark: SparkSession,
+    paths: LakePaths,
+    days: DateRange,
+    include_current_week: bool = False,
+) -> None:
+    """Run the weekly summary one week at a time, so a long backfill does not
+    have to hold every week's shuffle in flight at once."""
+    chunks: list[DateRange] = []
+    cur = days.start
+    while cur <= days.end:
+        chunk_end = min(cur + timedelta(days=6), days.end)
+        chunks.append(DateRange(cur, chunk_end))
+        cur = chunk_end + timedelta(days=1)
+    for chunk in chunks:
+        if not include_current_week and is_current_week(chunk.end):
+            continue
+        run(spark, paths, chunk)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Weekly customer summary")
     parser.add_argument("--root", required=True)
     parser.add_argument("--start", required=True, help="YYYY-MM-DD inclusive")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD inclusive")
+    parser.add_argument("--backfill", action="store_true", help="run one week at a time")
+    parser.add_argument(
+        "--include-current-week",
+        action="store_true",
+        default=False,
+        help="also summarize the in-progress week during a backfill",
+    )
     args = parser.parse_args(argv)
     days = DateRange(parse_dt(args.start), parse_dt(args.end))
-    run(get_spark("weekly_summary"), LakePaths(args.root), days)
+    spark = get_spark("weekly_summary")
+    if args.backfill:
+        backfill_weeks(spark, LakePaths(args.root), days, args.include_current_week)
+    else:
+        run(spark, LakePaths(args.root), days)
 
 
 if __name__ == "__main__":

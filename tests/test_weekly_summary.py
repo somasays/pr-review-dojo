@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from pyspark.sql import functions as F
@@ -7,7 +7,7 @@ from app.domain.dates import DateRange
 from app.jobs.daily_orders import LakePaths
 from app.jobs.daily_orders import run as run_daily
 from app.jobs.fixtures import write_customers_fixture
-from app.jobs.weekly_summary import run, week_keys, weekly_summary
+from app.jobs.weekly_summary import is_current_week, run, week_keys, weekly_summary
 
 RANGE = DateRange(date(2026, 8, 1), date(2026, 8, 3))
 
@@ -49,3 +49,9 @@ def test_run_writes_one_partition_per_week(spark, lake):
         "2026-08-03",
     }
     assert written.filter(F.col("week_start") == "2026-08-03").count() == 3
+
+
+def test_is_current_week_matches_todays_actual_week():
+    today = date.today()
+    assert is_current_week(today) is True
+    assert is_current_week(today - timedelta(days=7)) is False
