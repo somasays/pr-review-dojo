@@ -105,8 +105,6 @@ def get_flusher() -> NotificationFlusher:
 
 
 def get_order_service(db: DbSession, settings: AppSettings) -> OrderService:
-    # The flusher resolves recipients when it sends, so it needs a session.
-    _flusher.session = db
     return OrderService(db, PricingService(), NotificationService(_sender, settings, _flusher))
 
 

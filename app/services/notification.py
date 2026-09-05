@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.repositories import CustomerRepository
 from app.services.config import Settings, get_settings
@@ -37,6 +37,18 @@ class Message:
 
 class Sender(Protocol):
     def send(self, message: Message) -> None: ...
+
+
+def format_flusher_digest(
+    pending: int, sent_total: int, error_count: int, last_error: str | None
+) -> str:
+    """Pure formatting for the ops report, callable with plain values."""
+    parts = [f"pending={pending}", f"sent_total={sent_total}"]
+    if error_count:
+        parts.append(f"errors={error_count} last={last_error}")
+    else:
+        parts.append("errors=0")
+    return ", ".join(parts)
 
 
 @dataclass
@@ -69,28 +81,28 @@ class NotificationFlusher:
         )
         self.batch_size = settings.notify_batch_size
         self.flush_seconds = settings.notify_flush_seconds
-        self.session: Session | None = None
+        self.sessions: sessionmaker[Session] | None = None
         self.errors: list[str] = []
         self.sent_total = 0
         self._pending: list[Message] = []
         self._batch: list[Message] = []
         self._seen: dict[str, float] = {}
-        self._queue_lock = threading.Lock()
-        self._batch_lock = threading.Lock()
-        self._rlock = threading.RLock()
-        self._stopped = False
+        # One lock for the queue, the batch and the dedupe map. Two locks bought
+        # nothing here and could be taken in either order.
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         if self._thread is not None:
             return
-        self._stopped = False
+        self._wake.clear()
         self._thread = threading.Thread(target=self._run, name="notification-flusher")
         self._thread.start()
 
     def stop(self) -> None:
         """Stop the loop and send whatever is still queued."""
-        self._stopped = True
+        self._wake.set()
         thread, self._thread = self._thread, None
         if thread is not None:
             thread.join()
@@ -98,50 +110,43 @@ class NotificationFlusher:
 
     def enqueue(self, message: Message) -> None:
         """Queue one message. Called from request threads."""
-        with self._batch_lock:
-            room = self.batch_size - len(self._batch)
-            with self._queue_lock:
-                self._pending.append(message)
-                depth = len(self._pending)
-        # A quiet queue should not strand a partial batch.
-        threading.Timer(self.flush_seconds, self._tick).start()
-        if depth >= room:
+        with self._lock:
+            self._pending.append(message)
+            depth = len(self._pending) + len(self._batch)
+        # A partial batch goes out on the next tick of the flusher thread.
+        if depth >= self.batch_size:
             self.flush()
 
     def flush(self) -> None:
         """Move everything pending into the batch and send one batch."""
-        with self._queue_lock:
-            with self._batch_lock:
-                self._batch.extend(self._pending)
-                self._pending.clear()
-                batch = self._batch[: self.batch_size]
-                self._batch = self._batch[self.batch_size :]
+        with self._lock:
+            self._batch.extend(self._pending)
+            self._pending.clear()
+            batch = self._batch[: self.batch_size]
+            self._batch = self._batch[self.batch_size :]
         if batch:
             self._flush_batch(batch)
 
-    def compact(self) -> None:
+    def compact(self, now: float | None = None) -> None:
         """Forget dedupe keys that are older than the replay window."""
-        cutoff = time.monotonic() - self.flush_seconds * 10
-        # guard the seen map
-        with threading.Lock():
+        now = time.monotonic() if now is None else now
+        cutoff = now - self.flush_seconds * 10
+        with self._lock:
             self._seen = {key: at for key, at in self._seen.items() if at > cutoff}
 
     def pending_count(self) -> int:
-        with self._queue_lock:
+        with self._lock:
             return len(self._pending)
 
     def digest(self) -> str:
         """One-line summary of flusher activity for the ops report."""
-        parts = [f"pending={self.pending_count()}", f"sent_total={self.sent_total}"]
-        if self.errors:
-            parts.append(f"errors={len(self.errors)} last={self.errors[-1]}")
-        else:
-            parts.append("errors=0")
-        return ", ".join(parts)
+        with self._lock:
+            error_count = len(self.errors)
+            last_error = self.errors[-1] if self.errors else None
+        return format_flusher_digest(self.pending_count(), self.sent_total, error_count, last_error)
 
     def _run(self) -> None:
-        while not self._stopped:
-            time.sleep(self.flush_seconds)
+        while not self._wake.wait(self.flush_seconds):
             self.compact()
             self._tick()
 
@@ -153,23 +158,34 @@ class NotificationFlusher:
 
     def _flush_batch(self, batch: list[Message]) -> None:
         active = self._active_recipients(batch)
-        fresh = [m for m in batch if m.to in active and m.dedupe_key not in self._seen]
-        # One mail per recipient per batch so a busy customer is not spammed.
-        unique = {m.to: m for m in fresh}
-        pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="notify")
-        for message in unique.values():
-            with self._queue_lock:
-                self._seen[message.dedupe_key] = time.monotonic()
-            pool.submit(self._deliver, message)
-        # int += is a single bytecode, atomic, no lock needed.
-        self.sent_total += len(unique)
+        now = time.monotonic()
+        with self._lock:
+            # One send per dedupe key, not per recipient: a customer can have
+            # two orders in the same batch.
+            fresh = [m for m in batch if m.to in active and m.dedupe_key not in self._seen]
+            for message in fresh:
+                self._seen[message.dedupe_key] = now
+        with ThreadPoolExecutor(max_workers=8, thread_name_prefix="notify") as pool:
+            submitted = [(m, pool.submit(self._deliver, m)) for m in fresh]
+        failed = []
+        for message, future in submitted:
+            error = future.exception()
+            if error is not None:
+                log.warning("could not send %s: %s", message.dedupe_key, error)
+                failed.append(message.dedupe_key)
+        with self._lock:
+            self.errors.extend(failed)
+            for key in failed:
+                self._seen.pop(key, None)
+            self.sent_total += len(fresh) - len(failed)
 
     def _active_recipients(self, batch: list[Message]) -> set[str]:
         """Skip mail for customers deleted while the batch was waiting."""
-        if self.session is None:
+        if self.sessions is None:
             return {m.to for m in batch}
-        repo = CustomerRepository(self.session)
-        return {m.to for m in batch if repo.by_email(m.to) is not None}
+        with self.sessions() as session:
+            repo = CustomerRepository(session)
+            return {m.to for m in batch if repo.by_email(m.to) is not None}
 
     def _deliver(self, message: Message) -> None:
         log.info("sending %s to %s (key=%s)", message.subject, message.to, message.dedupe_key)

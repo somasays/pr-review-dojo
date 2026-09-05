@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.api.deps import get_flusher
 from app.api.routers import customers, orders, reports
 from app.db.repositories import NotFound
+from app.db.session import get_session_factory
 
 log = logging.getLogger(__name__)
 
@@ -20,6 +21,8 @@ log = logging.getLogger(__name__)
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Run the notification flusher for as long as the app is up."""
     flusher = get_flusher()
+    # Its own factory, so it opens a Session per batch on its own thread.
+    flusher.sessions = get_session_factory()
     flusher.start()
     try:
         yield
