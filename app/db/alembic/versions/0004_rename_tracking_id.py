@@ -1,4 +1,4 @@
-"""rename tracking_number to tracking_id
+"""add tracking_id alongside tracking_number
 
 Revision ID: 0004
 Revises: 0003
@@ -16,22 +16,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # The carrier webhook payload calls this field trackingId, so line up
-    # the column with the integration before more code reads it.
+    # Expand step: add the column under the name the carrier webhook payload
+    # uses without touching tracking_number yet. Pods still running the
+    # previous release keep reading and writing tracking_number until they
+    # are fully rolled out. A later revision drops tracking_number once
+    # nothing reads it anymore.
     with op.batch_alter_table("orders") as batch_op:
-        batch_op.alter_column(
-            "tracking_number",
-            new_column_name="tracking_id",
-            existing_type=sa.String(64),
-            existing_nullable=False,
+        batch_op.add_column(
+            sa.Column("tracking_id", sa.String(64), nullable=False, server_default="")
         )
 
 
 def downgrade() -> None:
     with op.batch_alter_table("orders") as batch_op:
-        batch_op.alter_column(
-            "tracking_id",
-            new_column_name="tracking_number",
-            existing_type=sa.String(64),
-            existing_nullable=False,
-        )
+        batch_op.drop_column("tracking_id")
