@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import bindparam, func, select, text
+from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -44,6 +44,13 @@ class CustomerRepository:
         stmt = select(Customer).order_by(Customer.id).limit(limit).offset(offset)
         return self.session.scalars(stmt).all()
 
+    def _prefix_stmt(self, prefix: str, regions: Sequence[str]) -> Select[tuple[Customer]]:
+        """The `search`/`search_count` predicate, in one place so they cannot disagree."""
+        stmt = select(Customer).where(Customer.name.startswith(prefix))
+        if regions:
+            stmt = stmt.where(Customer.region.in_(regions))
+        return stmt
+
     def search(
         self,
         prefix: str,
@@ -55,24 +62,13 @@ class CustomerRepository:
 
         Ordered by name so the admin console can show the page alphabetically.
         """
-        stmt = select(Customer).where(Customer.name.startswith(prefix))
-        if regions:
-            stmt = stmt.where(Customer.region.in_(regions))
-        stmt = stmt.order_by(Customer.name, Customer.id).limit(limit).offset(offset)
-        return self.session.scalars(stmt).all()
+        stmt = self._prefix_stmt(prefix, regions).order_by(Customer.name, Customer.id)
+        return self.session.scalars(stmt.limit(limit).offset(offset)).all()
 
     def search_count(self, prefix: str, regions: Sequence[str]) -> int:
         """How many customers `search` would match if it were not paginated."""
-        sql = "SELECT COUNT(*) FROM customers WHERE name LIKE :pattern"
-        params: dict[str, object] = {"pattern": f"{prefix}%"}
-        stmt = text(sql)
-        if regions:
-            stmt = text(sql + " AND region IN :regions").bindparams(
-                bindparam("regions", expanding=True)
-            )
-            params["regions"] = list(regions)
-        total = self.session.execute(stmt, params).scalar_one()
-        return int(total)
+        stmt = select(func.count()).select_from(self._prefix_stmt(prefix, regions).subquery())
+        return int(self.session.scalar(stmt) or 0)
 
     def first_match(self, prefix: str) -> Customer:
         """Return the lowest-id customer whose name starts with `prefix`.
