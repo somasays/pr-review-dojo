@@ -12,11 +12,11 @@ import argparse
 import logging
 from decimal import Decimal
 
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql import functions as F
 
 from app.domain.dates import DateRange, parse_dt
-from app.jobs.schemas import ORDERS_SCHEMA
+from app.jobs.daily_orders import LakePaths, read_orders
 from app.jobs.spark_session import get_spark
 
 log = logging.getLogger(__name__)
@@ -28,79 +28,48 @@ BACKFILL_DAYS = 7
 PAID_STATUSES = ("paid", "shipped", "delivered")
 
 
-def enrich(
-    spark: SparkSession,
-    root: str,
-    start: str,
-    end: str,
-    backfill: bool = False,
-    dry_run: bool = False,
-) -> DataFrame:
-    """Build the enrichment table for a range of days and write it out."""
-    if backfill:
-        days = DateRange.last_n_days(BACKFILL_DAYS)
-    else:
-        days = DateRange(parse_dt(start), parse_dt(end))
-    log.info("enriching orders for %s..%s", days.start, days.end)
-
-    orders_path = f"{root}/orders"
-    df = (
-        spark.read.schema(ORDERS_SCHEMA)
-        .option("basePath", orders_path)
-        .parquet(orders_path)
-        .filter(F.col("dt").isin(days.partition_keys()))
+def enrich_daily(orders: DataFrame) -> DataFrame:
+    """One row per (customer_id, dt)."""
+    paid: Column = F.when(F.col("status").isin(*PAID_STATUSES), F.col("total")).otherwise(
+        F.lit(0).cast("decimal(12,2)")
     )
-
-    df = df.withColumn(
-        "is_paid",
-        F.when(F.col("status").isin(*PAID_STATUSES), F.lit(1)).otherwise(F.lit(0)),
-    )
-    df = df.withColumn(
-        "paid_amt",
-        F.when(F.col("is_paid") == 1, F.col("total")).otherwise(F.lit(0)),
-    )
-    df = df.withColumn("paid_amt", F.col("paid_amt").cast("decimal(12,2)"))
-    df = df.withColumn("total_amt", F.col("total").cast("decimal(12,2)"))
-    df = df.withColumn("dt_str", F.col("dt").cast("string"))
-    df = df.withColumn("order_hour", F.hour(F.col("created_at")))
-    df = df.withColumn("order_hour_int", F.col("order_hour").cast("int"))
-    df = df.withColumn(
-        "is_large",
-        F.when(F.col("total_amt") >= F.lit(LARGE_ORDER_TOTAL), F.lit(1)).otherwise(F.lit(0)),
-    )
-    df = df.withColumn("large_int", F.col("is_large").cast("int"))
-    df = df.withColumn("one", F.lit(1))
-    df = df.withColumn("one_int", F.col("one").cast("int"))
-    df = df.withColumn("paid_amt_wide", F.col("paid_amt").cast("decimal(14,2)"))
-
-    grouped = df.groupBy("customer_id", "dt_str").agg(
-        F.sum("one_int").cast("int").alias("order_count"),
-        F.sum("paid_amt_wide").cast("decimal(14,2)").alias("paid_total"),
-        F.sum("total_amt").alias("gross_total"),
-        F.sum("large_int").cast("int").alias("large_order_count"),
-        F.min("order_hour_int").cast("int").alias("first_order_hour"),
-        F.max("order_hour_int").cast("int").alias("last_order_hour"),
-    )
-    grouped = grouped.withColumn("avg_raw", F.col("gross_total") / F.col("order_count"))
-    grouped = grouped.withColumn("avg_order_value", F.col("avg_raw").cast("decimal(14,2)"))
-    grouped = grouped.withColumnRenamed("dt_str", "dt")
-    out = grouped.drop("gross_total", "avg_raw").select(
-        "customer_id",
-        "order_count",
-        "paid_total",
-        "avg_order_value",
-        "large_order_count",
-        "first_order_hour",
-        "last_order_hour",
-        "dt",
-    )
-
-    if not dry_run:
-        # Dynamic partition overwrite: only the days present in out are replaced.
-        out.repartition("dt").write.mode("overwrite").partitionBy("dt").parquet(
-            f"{root}/customer_daily_enrichment"
+    large: Column = F.when(F.col("total") >= F.lit(LARGE_ORDER_TOTAL), 1).otherwise(0)
+    hour: Column = F.hour("created_at")
+    return (
+        orders.groupBy("customer_id", "dt")
+        .agg(
+            F.count("order_id").cast("int").alias("order_count"),
+            F.sum(paid).cast("decimal(14,2)").alias("paid_total"),
+            (F.sum("total") / F.count("order_id")).cast("decimal(14,2)").alias("avg_order_value"),
+            F.sum(large).cast("int").alias("large_order_count"),
+            F.min(hour).cast("int").alias("first_order_hour"),
+            F.max(hour).cast("int").alias("last_order_hour"),
         )
-    return out
+        .select(
+            "customer_id",
+            "order_count",
+            "paid_total",
+            "avg_order_value",
+            "large_order_count",
+            "first_order_hour",
+            "last_order_hour",
+            "dt",
+        )
+    )
+
+
+def write_enrichment(df: DataFrame, paths: LakePaths) -> None:
+    # Dynamic partition overwrite: only the partitions present in df are replaced.
+    df.repartition("dt").write.mode("overwrite").partitionBy("dt").parquet(
+        paths.customer_daily_enrichment
+    )
+
+
+def run(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataFrame:
+    log.info("enriching orders for %s..%s", days.start, days.end)
+    enriched = enrich_daily(read_orders(spark, paths, days))
+    write_enrichment(enriched, paths)
+    return enriched
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -111,14 +80,20 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--backfill", action="store_true", help=f"last {BACKFILL_DAYS} days")
     parser.add_argument("--dry-run", action="store_true", help="compute but do not write")
     args = parser.parse_args(argv)
-    enrich(
-        get_spark("daily_enrichment"),
-        args.root,
-        args.start,
-        args.end,
-        backfill=args.backfill,
-        dry_run=args.dry_run,
+    days = (
+        DateRange.last_n_days(BACKFILL_DAYS)
+        if args.backfill
+        else DateRange(parse_dt(args.start), parse_dt(args.end))
     )
+    spark = get_spark("daily_enrichment")
+    paths = LakePaths(args.root)
+    if args.dry_run:
+        log.info(
+            "dry run: %s rows, nothing written",
+            enrich_daily(read_orders(spark, paths, days)).count(),
+        )
+        return
+    run(spark, paths, days)
 
 
 if __name__ == "__main__":
