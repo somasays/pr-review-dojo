@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Order, OrderItem
 from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
-from app.domain.order_state import OrderStatus, is_cancellable, transition
+from app.domain.order_state import OrderStatus, is_cancellable, is_terminal, transition
 from app.services.notification import NotificationService
 from app.services.pricing_service import ItemRequest, PricingService
 
@@ -131,3 +131,11 @@ class OrderService:
 
     def refund(self, order_id: int) -> Order:
         return self._move(self.orders.get(order_id), OrderStatus.REFUNDED)
+
+    def add_note(self, order_id: int, body: str, author: str) -> Order:
+        order = self.orders.get(order_id)
+        if is_terminal(OrderStatus(order.status)):
+            # Let the state machine raise the descriptive error.
+            transition(OrderStatus(order.status), OrderStatus(order.status))
+        self.orders.add_note(order, body, author)
+        return order
