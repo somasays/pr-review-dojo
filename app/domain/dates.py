@@ -151,7 +151,7 @@ def current_quarter_range(today: date | None = None) -> DateRange:
 
 def is_business_day(day: date) -> bool:
     """True for Monday through Friday."""
-    return day.weekday() < 5
+    return day.weekday() not in WEEKEND_DAYS
 
 
 def business_days(days: DateRange) -> int:

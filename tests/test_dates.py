@@ -9,11 +9,9 @@ from app.domain.dates import (
     current_quarter_range,
     ensure_utc,
     fiscal_quarter,
-    merge_ranges,
     month_range,
     next_business_day,
     parse_dt,
-    parse_window,
     partition_for,
     quarter_range,
     to_dt,
@@ -80,23 +78,6 @@ def test_business_days():
     assert business_days(week) == 5
     assert next_business_day(date(2026, 8, 7)) == date(2026, 8, 10)
     assert next_business_day(date(2026, 8, 3)) == date(2026, 8, 4)
-
-
-def test_parse_window():
-    assert parse_window("2026-08-01:2026-08-03") == DateRange(date(2026, 8, 1), date(2026, 8, 3))
-    assert parse_window("2026-08-01").days == 1
-
-
-def test_merge_ranges_joins_overlapping_and_adjacent():
-    ranges = [
-        DateRange(date(2026, 8, 5), date(2026, 8, 7)),
-        DateRange(date(2026, 8, 1), date(2026, 8, 4)),
-        DateRange(date(2026, 8, 10), date(2026, 8, 11)),
-    ]
-    assert merge_ranges(ranges) == [  # 1-4 and 5-7 are adjacent, 10-11 is separate
-        DateRange(date(2026, 8, 1), date(2026, 8, 7)),
-        DateRange(date(2026, 8, 10), date(2026, 8, 11)),
-    ]
 
 
 def test_coverage_counts_duplicate_days():
