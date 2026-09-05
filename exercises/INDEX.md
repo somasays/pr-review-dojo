@@ -25,3 +25,4 @@
 | 22 | test | spark_streaming | medium | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/52) | - | | |
 | 21 | test | services | hard | 2026-09-04 | [PR](https://github.com/somasays/pr-review-dojo/pull/53) | - | | |
 | 25 | test | rewrite:services | rewrite | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/56) | - | | |
+| 24 | test | concurrency | medium | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/59) | - | | |
