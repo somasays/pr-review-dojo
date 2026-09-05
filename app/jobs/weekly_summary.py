@@ -100,9 +100,10 @@ def run(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataFrame:
     return weekly
 
 
-def is_current_week(day: date) -> bool:
+def is_current_week(day: date, today: date | None = None) -> bool:
     """True when day falls in the week that has not finished yet."""
-    return week_start(day) == week_start(date.today())
+    today = today or date.today()
+    return week_start(day) == week_start(today)
 
 
 def backfill_weeks(
