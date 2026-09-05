@@ -20,15 +20,8 @@ from app.services.pricing_service import PricingService
 
 
 def get_db() -> Iterator[Session]:
-    session = get_session_factory()()
-    try:
+    with get_session_factory()() as session:
         yield session
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
 
 
 DbSession = Annotated[Session, Depends(get_db)]

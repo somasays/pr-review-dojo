@@ -54,6 +54,19 @@ class OrderItemOut(BaseModel):
     unit_price: Decimal
 
 
+class OrderNoteIn(BaseModel):
+    body: str = Field(min_length=1, max_length=500)
+
+
+class OrderNoteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    author: str
+    body: str
+    created_at: datetime
+
+
 class OrderOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,6 +80,7 @@ class OrderOut(BaseModel):
     discount_code: str | None
     created_at: datetime
     items: list[OrderItemOut]
+    notes: list[OrderNoteOut]
 
 
 class Page[T](BaseModel):
