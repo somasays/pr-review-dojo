@@ -17,6 +17,7 @@ import argparse
 import logging
 import os
 import shutil
+from dataclasses import dataclass
 
 from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
@@ -31,6 +32,15 @@ WATERMARK = "10 minutes"
 PAID_STATUS = "paid"
 UPSERT_TRIGGER = "30 seconds"
 PAID_COUNTS_TRIGGER = "30 seconds"
+
+
+@dataclass(frozen=True)
+class StreamPaths:
+    """The trio of paths every new sink query needs."""
+
+    source_dir: str
+    target: str
+    checkpoint: str
 
 
 def _stage_and_overwrite(df: DataFrame, target: str) -> None:
@@ -143,13 +153,13 @@ def start(
 
 
 def start_paid_counts(
-    spark: SparkSession, source_dir: str, target: str, checkpoint: str, available_now: bool = False
+    spark: SparkSession, paths: StreamPaths, available_now: bool = False
 ) -> StreamingQuery:
-    events = paid_events(spark, source_dir)
+    events = paid_events(spark, paths.source_dir)
     writer = (
         events.writeStream.queryName("paid_order_counts")
-        .option("checkpointLocation", checkpoint)
-        .foreachBatch(lambda df, bid: merge_paid_counts(df, bid, target))
+        .option("checkpointLocation", paths.checkpoint)
+        .foreachBatch(lambda df, bid: merge_paid_counts(df, bid, paths.target))
     )
     if available_now:
         writer = writer.trigger(availableNow=True)
@@ -234,11 +244,8 @@ def main(argv: list[str] | None = None) -> None:
     spark = get_spark("order_events")
     queries = [start(spark, args.source, args.target, args.checkpoint, args.once)]
     if args.counts_target:
-        queries.append(
-            start_paid_counts(
-                spark, args.source, args.counts_target, args.counts_checkpoint, args.once
-            )
-        )
+        counts_paths = StreamPaths(args.source, args.counts_target, args.counts_checkpoint)
+        queries.append(start_paid_counts(spark, counts_paths, args.once))
     if args.totals_target:
         queries.append(
             start_customer_totals(
