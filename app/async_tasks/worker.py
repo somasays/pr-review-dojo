@@ -66,12 +66,21 @@ class QueueWorker:
         self.stats = WorkerStats()
         self._stop = asyncio.Event()
         self._inflight: set[asyncio.Task[None]] = set()
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def register(self, kind: str, handler: Handler | AsyncHandler) -> None:
         self.handlers[kind] = handler
 
     def stop(self) -> None:
         self._stop.set()
+
+    def stop_threadsafe(self) -> None:
+        """Ask the worker to stop from a thread that is not the loop thread."""
+        loop = self._loop
+        if loop is None:
+            self._stop.set()
+        else:
+            loop.call_soon_threadsafe(self._stop.set)
 
     async def _invoke(self, handler: Handler | AsyncHandler, payload: dict[str, Any]) -> Any:
         if asyncio.iscoroutinefunction(handler):
@@ -96,13 +105,15 @@ class QueueWorker:
                 log.info("task %s asked for %.2fs", task.kind, exc.delay)
                 if task.attempt < self.max_attempts:
                     self.stats.retried += 1
-                    self._requeue_after(
+                    await self._requeue_after(
                         Task(task.kind, task.payload, attempt=task.attempt + 1), exc.delay
                     )
                 else:
                     self.stats.failed += 1
                     self.stats.errors.append(f"{task.kind}: {exc}")
-            except BaseException as exc:
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
                 log.warning("task %s attempt %d failed: %s", task.kind, task.attempt, exc)
                 if task.attempt < self.max_attempts:
                     self.stats.retried += 1
@@ -113,6 +124,7 @@ class QueueWorker:
 
     async def run(self) -> None:
         """Poll until stop() is called and the queue is drained."""
+        self._loop = asyncio.get_running_loop()
         while not (self._stop.is_set() and self.queue.empty()):
             try:
                 task = await asyncio.wait_for(self.queue.get(), timeout=self.poll_timeout)
@@ -133,15 +145,18 @@ class QueueWorker:
                 await asyncio.sleep(idle_after)
                 if self.queue.empty() and not self._inflight:
                     if self.on_idle is not None:
-                        self.on_idle(self.stats)
+                        try:
+                            self.on_idle(self.stats)
+                        except Exception:
+                            log.exception("on_idle callback failed")
                     self.stop()
                     return
 
         await asyncio.gather(self.run(), watch())
 
     def drain(self) -> None:
-        """Run until idle. For scripts and the module entrypoint."""
-        asyncio.get_event_loop().run_until_complete(self.run_until_idle())
+        """Run until idle. For scripts and the module entrypoint: owns the loop."""
+        asyncio.run(self.run_until_idle())
 
 
 def serve_admin(worker: QueueWorker, port: int = 8081) -> None:
@@ -149,7 +164,7 @@ def serve_admin(worker: QueueWorker, port: int = 8081) -> None:
 
     class Admin(BaseHTTPRequestHandler):
         def do_POST(self) -> None:  # noqa: N802
-            worker.stop()
+            worker.stop_threadsafe()
             self.send_response(202)
             self.end_headers()
 

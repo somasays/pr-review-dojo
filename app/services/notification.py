@@ -7,6 +7,7 @@ dedupe key so a retry after a partial success does not double-send.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -62,10 +63,7 @@ class NotificationService:
         the caller only cares that every message was attempted.
         """
         for message in messages:
-            log.info(
-                "batch sending %s to %s (key=%s)", message.subject, message.to, message.dedupe_key
-            )
-            retry(lambda: self.sender.send(message), self.policy)
+            await asyncio.to_thread(self._deliver, message)
 
     def order_confirmed(self, email: str, order_id: int, total: str) -> None:
         self._deliver(

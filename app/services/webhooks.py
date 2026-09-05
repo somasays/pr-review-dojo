@@ -65,7 +65,7 @@ class WebhookDispatcher:
         settings = settings or get_settings()
         self.transport = transport
         self.attempts = settings.webhook_attempts
-        self.timeout = settings.webhook_timeout_ms
+        self.timeout = settings.webhook_timeout_ms / 1000
         self.backoff_seconds = settings.notify_backoff_seconds
         self.sem = asyncio.Semaphore(settings.webhook_max_parallel)
         self._delivered: set[str] = set()
@@ -78,10 +78,11 @@ class WebhookDispatcher:
         key = self._key(endpoint, event)
         if key in self._delivered:
             return DeliveryResult(endpoint.url, ok=True)
+        self._delivered.add(key)
         async with self.sem:
             result = await self._post(endpoint, event)
-        if result.ok:
-            self._delivered.add(key)
+        if not result.ok:
+            self._delivered.discard(key)
         return result
 
     async def _post(self, endpoint: WebhookEndpoint, event: WebhookEvent) -> DeliveryResult:
@@ -110,7 +111,7 @@ class WebhookDispatcher:
     async def fan_out(
         self, event: WebhookEvent, endpoints: list[WebhookEndpoint]
     ) -> list[DeliveryResult]:
-        futs = [asyncio.ensure_future(self.deliver(e, event)) for e in endpoints]
+        futs = [asyncio.create_task(self.deliver(e, event)) for e in endpoints]
         return await asyncio.gather(*futs)
 
 

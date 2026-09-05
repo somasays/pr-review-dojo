@@ -78,7 +78,7 @@ def build_handlers(
             raise RetryAfter(settings.webhook_retry_after_seconds)
         log.warning("giving up on %s for %d endpoints", event.id, len(failed))
 
-    async def record_delivery_metric(payload: dict[str, Any]) -> None:
+    def record_delivery_metric(payload: dict[str, Any]) -> None:
         kind = str(payload["kind"])
         DELIVERY_COUNTS[kind] = DELIVERY_COUNTS.get(kind, 0) + int(payload.get("count", 1))
 
