@@ -9,6 +9,12 @@ the hidden test asserts. The final section lists code that looks suspicious but 
 this codebase; one of those is planted in every exercise as the false-positive trap. Severities
 follow the scale in `CLAUDE.md`.
 
+## Do not plant
+
+- Trivia (a linter's job, not a reviewer's): FA-19, FA-20, FA-21
+
+Everything else is the middle band a strong generalist is expected to reason about. Pick from it.
+
 ## Defects
 
 ### FA-01: On-behalf-of header honored for non-admin keys

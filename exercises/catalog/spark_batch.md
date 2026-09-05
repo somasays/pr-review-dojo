@@ -16,6 +16,13 @@ writer. Hidden tests reuse the session scoped `spark` fixture and the `lake` fix
 and plan inspection, so each runs in seconds on `local[*]`. Every exercise also plants one entry
 from "Looks wrong but is fine"; flagging it costs the reviewer a false positive.
 
+## Do not plant
+
+- Trivia (a linter's job, not a reviewer's): SB-21, SB-22, SB-23
+- Internals (deeper than a generalist interview goes): SB-15
+
+Everything else is the middle band a strong generalist is expected to reason about. Pick from it.
+
 ## Defects
 
 ### SB-01: Partition overwrite switched to static, so a one day rerun deletes the whole table

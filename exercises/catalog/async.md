@@ -2,6 +2,13 @@
 
 Defects for the asyncio domain. Each entry names a real file and function in this codebase, a plausible feature PR that would touch it, what the mistaken code looks like, and what the hidden test under `solutions_tests/` asserts. `/exercise` and `/seed` pick entries from here by severity mix, plant them so the diff reads as honest feature work, and plant one pattern from "Looks wrong but is fine" as the clean-code trap. Graders match a reviewer's comment to an entry by root cause, so descriptions state the mechanism, not just the symptom. The worker under test is `app/async_tasks/worker.py` (`QueueWorker`), the sender is `app/services/notification.py`, and `tests/test_worker.py` runs with pytest-asyncio in auto mode, so hidden tests are plain `async def` functions.
 
+## Do not plant
+
+- Trivia (a linter's job, not a reviewer's): AS-20, AS-21, AS-22
+- Internals (deeper than a generalist interview goes): AS-12, AS-13, AS-15, AS-17, AS-18
+
+Everything else is the middle band a strong generalist is expected to reason about. Pick from it.
+
 ## Defects
 
 ### AS-01: Retry backoff sleeps the event loop

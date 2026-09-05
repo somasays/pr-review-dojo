@@ -2,6 +2,13 @@
 
 Each entry is one plantable defect for a feature PR against `app/db/` and its callers, with a planting recipe tied to real files in this repository and a description of the hidden test under `solutions_tests/` that fails on the defect and passes on the fix. `/exercise` picks entries by severity mix, plants them as honest-looking feature work, and plants exactly one pattern from "Looks wrong but is fine" as the false-positive trap. Severities follow the scale in `CLAUDE.md`. Every hidden test runs on SQLite in memory with `StaticPool` (see `conftest.py`), so one connection is shared by every session in a test: uncommitted writes are visible across sessions, and tests that need to prove "not committed" do the work, call `db.rollback()`, and then assert the row is gone.
 
+## Do not plant
+
+- Trivia (a linter's job, not a reviewer's): SA-16, SA-19, SA-20, SA-21
+- Internals (deeper than a generalist interview goes): SA-14, SA-18
+
+Everything else is the middle band a strong generalist is expected to reason about. Pick from it.
+
 ## Defects
 
 ### SA-01: SQL injection via f-string in customer search

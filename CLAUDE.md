@@ -23,6 +23,25 @@ Hard limits on the role:
   exercise is created, because the point of teach mode is to study a worked
   example before attempting test mode.
 
+## Finding kinds
+
+Every planted item in an exercise has a kind. A review is graded on all of
+them, not only on bugs.
+
+| Kind | What it is | Severity range |
+| --- | --- | --- |
+| **defect** | Wrong behavior, security hole, data loss, convention break with a production consequence. From the domain catalogs. | Blocker, Major, Minor |
+| **design** | Structure that works today but is in the wrong place, at the wrong level, or duplicates something that exists: responsibility split, layering, dependency direction, reuse, testability, naming, over-engineering. From `exercises/catalog/design.md`. | Major, Minor |
+| **refactor** | A design finding phrased as an opportunity: the code is acceptable, a strong reviewer would still suggest the restructuring and say why it is not blocking. | Minor |
+| **test** | The shipped test misses the risky path, asserts the wrong thing, or hides a failure. From `exercises/catalog/tests.md`. | Major, Minor |
+| **clean** | The deliberately fine code that looks suspicious. Flagging it as a problem is a false positive. | none |
+
+Trivia is never planted: unused imports, docstring wording, file naming,
+literal status codes, legacy API spellings. Framework internals are never
+planted either. Each domain catalog marks both bands under `Do not plant`.
+At most one Nit per exercise, and only when the mismatch would mislead a
+reader.
+
 ## Severity scale
 
 | Severity | Definition | Example |
@@ -38,27 +57,31 @@ not on how hard the bug is to spot.
 
 ## Review rubric (score out of 100)
 
-**Detection, 50 points.** Blockers 10 each, majors 5 each, minors 2 each,
-nits 1 each. Capped at 50. A defect counts as found if the reviewer's comment
-identifies the same root cause on the same code, even with a different
-severity label or wording.
+**Detection, 35 points.** Defect findings: blockers 8 each, majors 5 each,
+minors 2 each, nits 1 each. Capped at 35. A finding counts as found if the
+reviewer's comment identifies the same root cause on the same code, even with
+a different severity label or wording.
 
-**False positives, minus 5 each.** A comment that asserts a defect where
-there is none. Flagging the deliberately clean code (the "looks wrong but is
-fine" trap planted in every exercise) counts as a false positive. A question
-("is this intentional?") on the clean trap is not a false positive; an
-assertion ("this is a race") is. Questions on genuine defects still count as
-found only if they name the actual problem.
+**Design, 15 points.** Design, refactor, and test findings: 5 each, capped at
+15. A design comment counts when it names the structural problem and the
+consequence (harder to test, wrong layer, duplicates X, will not survive the
+next feature). "This could be cleaner" does not count.
 
-**Severity calibration, 15 points.** For each found defect, full credit for
+**False positives, minus 5 each.** A comment that asserts a problem where
+there is none. Flagging the clean trap counts. A question ("is this
+intentional?") on the clean trap is not a false positive; an assertion ("this
+is a race") is.
+
+**Severity calibration, 10 points.** For each found defect, full credit for
 the expected severity, half credit for one step off, zero for two or more
-steps off. Scaled to 15.
+steps off. Scaled to 10. Design findings are not calibrated.
 
-**Prioritization, 15 points.** The summary comment must state what blocks
-merge and what does not. Full credit: an explicit merge decision (approve,
-request changes, or comment) plus the blocking items listed first. Half
-credit: the decision is there but the ordering is missing or wrong. Zero:
-no summary or no decision.
+**Summary, 20 points.** The summary comment is scored in two halves.
+Narration, 10: two to four sentences saying what the change does and how it
+fits the codebase, the way you would open a review conversation with the
+author. Decision, 10: an explicit merge decision (approve, request changes,
+or comment) with the blocking items listed first and the non-blocking items
+after. Half credit for a decision without ordering.
 
 **Communication, 20 points.** Judged over the whole review:
 
@@ -69,9 +92,11 @@ no summary or no decision.
 
 ## Fix rubric (score out of 100)
 
-**Defects resolved, 50 points.** Weighted by severity: blockers 10, majors 5,
-minors 2, nits 1, normalized so all planted defects sum to 50. A defect is
-resolved when the root cause is gone, not when the symptom is masked.
+**Findings resolved, 50 points.** Every planted item except the clean trap,
+weighted by severity: blockers 10, majors 5, minors 2, nits 1, normalized so
+all planted findings sum to 50. Design and test findings count at their
+severity. A finding is resolved when the root cause is gone, not when the
+symptom is masked.
 
 **Hidden tests, 20 points.** Fraction of `solutions_tests/` passing on the
 fix branch, scaled to 20.
@@ -96,18 +121,20 @@ the model review.
 
 | Section | Points | Notes |
 | --- | --- | --- |
-| Detection | <n>/50 | <found>/<total> defects |
+| Detection | <n>/35 | <found>/<total> defects |
+| Design | <n>/15 | <found>/<total> design, refactor, and test findings |
 | False positives | -<n> | <count> |
-| Severity calibration | <n>/15 | |
-| Prioritization | <n>/15 | |
+| Severity calibration | <n>/10 | |
+| Summary | <n>/20 | narration <n>/10, decision <n>/10 |
 | Communication | <n>/20 | |
 
-### Defects
+### Findings
 
-| # | Catalog id | File:line | Expected | Given | Found |
-| --- | --- | --- | --- | --- | --- |
-| 1 | <id> | <path:line> | Blocker | Major | yes |
-| 2 | <id> | <path:line> | Major | - | no |
+| # | Kind | Catalog id | File:line | Expected | Given | Found |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | defect | <id> | <path:line> | Blocker | Major | yes |
+| 2 | design | <id> | <path:line> | Major | - | no |
+| 3 | test | <id> | <path:line> | Minor | Minor | yes |
 
 ### False positives
 
@@ -116,7 +143,7 @@ the model review.
 
 ### Model review
 
-<One entry per planted defect, in priority order.>
+<One entry per planted finding of every kind, in priority order.>
 
 **<path:line>** [Blocker] <catalog id>
 > <The comment a strong reviewer would leave: what breaks, under which
@@ -126,7 +153,8 @@ the model review.
 > <Why this code is fine and what a reviewer might wrongly suspect.>
 
 **Summary a strong reviewer would write**
-> <Merge decision and the priority order.>
+> <Narration: what the change does and how it fits, in two to four
+> sentences. Then the merge decision and the priority order.>
 
 ### Coaching
 
@@ -168,6 +196,7 @@ passed/total, and the reference fix in a collapsed `<details>` block.
 | --- | --- |
 | `/exercise <teach\|test> <domain> [easy\|medium\|hard]` | Create one exercise. `/exercise <teach\|test> rewrite <domain>` for rewrite exercises. |
 | `/seed` | Create every exercise in `exercises/CURRICULUM.md` not yet in `exercises/INDEX.md`. |
+| `/revise N` | Bring an existing exercise up to the current finding mix (defects plus design, refactor, and test findings). |
 | `/grade N` | Grade the submitted review on exercise N. |
 | `/fix-grade N` | Grade the fix PR for exercise N. |
 | `/reference N` | After both grades exist, open the reference solution PR. |
@@ -176,7 +205,8 @@ passed/total, and the reference fix in a collapsed `<details>` block.
 ## Working through an exercise
 
 Test mode: open the exercise PR, start the suggested timer, review it on
-GitHub with inline comments and a summary that states the merge decision,
+GitHub with inline comments and a summary that first narrates what the
+change does and then states the merge decision,
 submit the review, then run `/grade N`. Then branch `fix/N` from the
 exercise branch, fix what you found, open a PR into the exercise branch, and
 run `/fix-grade N`. Finally `/reference N` to diff against the reference.

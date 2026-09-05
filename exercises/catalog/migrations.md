@@ -13,6 +13,13 @@ or inspects the migration file source for a required pattern. Pick defects by
 id, plant them so the PR reads as honest feature work, and plant one entry
 from "Looks wrong but is fine" in the same PR.
 
+## Do not plant
+
+- Trivia (a linter's job, not a reviewer's): MG-12, MG-16, MG-17
+- Internals (deeper than a generalist interview goes): MG-15
+
+Everything else is the middle band a strong generalist is expected to reason about. Pick from it.
+
 ## Defects
 
 ### MG-01: NOT NULL column added without a server default

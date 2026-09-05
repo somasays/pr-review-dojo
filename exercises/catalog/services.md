@@ -2,6 +2,12 @@
 
 Defects for exercises that touch `app/services/` (`order_service.py`, `notification.py`, `retry.py`, `pricing_service.py`, `config.py`) and the code they lean on in `app/domain/dates.py` and `app/db/repositories.py`. `/exercise` and `/seed` pick entries by id, plant them inside an honest-looking feature PR using the Planting notes, and write the hidden test described under Hidden test into `solutions_tests/` on the solution branch. Several entries share one plausible feature (a payment gateway in `mark_paid`, tracking numbers in `order_shipped`, a `send_many` digest, an unpaid-order expiry sweep) so two or three can be combined into a single PR without the diff looking staged. Severity follows the scale in `CLAUDE.md`: production impact at realistic load decides, not how hard the defect is to spot. Every exercise also plants one entry from the "Looks wrong but is fine" section; a reviewer who asserts a defect there earns a false positive.
 
+## Do not plant
+
+- Trivia (a linter's job, not a reviewer's): SV-20, SV-21
+
+Everything else is the middle band a strong generalist is expected to reason about. Pick from it.
+
 ## Defects
 
 ### SV-01: Double cancel restores stock twice

@@ -2,6 +2,12 @@
 
 Pure-logic defects for `app/domain/` (`money.py`, `pricing.py`, `dates.py`, `order_state.py`) and the thin adapter in `app/services/pricing_service.py`. Each entry names the file and function to touch, a feature that would plausibly touch it, the mistaken code, and the hidden test that separates the defect from the fix. `/exercise` and `/seed` pick entries from `## Defects` by severity mix and always plant one entry from `## Looks wrong but is fine` as the false-positive trap. Every planting must pass `uv run mypy` (strict on `app/domain`) and `uv run ruff check .` (rules E, F, I, UP only, so mutable defaults and float comparisons are not caught by lint). Hidden tests live under `solutions_tests/` on the `solutions/N` branch and must fail on the exercise branch and pass on the fix.
 
+## Do not plant
+
+- Trivia (a linter's job, not a reviewer's): LG-19, LG-20
+
+Everything else is the middle band a strong generalist is expected to reason about. Pick from it.
+
 ## Defects
 
 ### LG-01: Float round trip truncates cents in payment export

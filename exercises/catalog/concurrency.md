@@ -21,6 +21,12 @@ monkeypatched hook rather than sleeping and hoping. Every exercise also plants
 one entry from the "Looks wrong but is fine" section; a reviewer who asserts a
 defect there earns a false positive.
 
+## Do not plant
+
+- Trivia (a linter's job, not a reviewer's): CC-16, CC-17, CC-18
+
+Everything else is the middle band a strong generalist is expected to reason about. Pick from it.
+
 ## Defects
 
 ### CC-01: Check-then-act on stock lets two threads oversell the last unit

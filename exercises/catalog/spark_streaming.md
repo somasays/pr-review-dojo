@@ -13,6 +13,13 @@ in a "cleanup" of the existing reader. Hidden tests reuse the session-scoped `sp
 `trigger(availableNow=True)`, so each runs in seconds on `local[*]`. Every exercise also plants one
 entry from "Looks wrong but is fine"; flagging it costs the reviewer a false positive.
 
+## Do not plant
+
+- Trivia (a linter's job, not a reviewer's): SS-17, SS-18
+- Internals (deeper than a generalist interview goes): SS-09, SS-13, SS-15, SS-16
+
+Everything else is the middle band a strong generalist is expected to reason about. Pick from it.
+
 ## Defects
 
 ### SS-01: Windowed aggregation with no watermark keeps every window in state forever
