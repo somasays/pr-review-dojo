@@ -82,6 +82,7 @@ class Order(Base):
         back_populates="order",
         cascade="all, delete-orphan",
         order_by="OrderNote.id",
+        lazy="selectin",
     )
 
 
