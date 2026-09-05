@@ -10,8 +10,9 @@ n=$1
 root=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
 py="$root/.venv/bin/python"
 git -C "$root" fetch -q origin "+refs/heads/ex/$n-*:refs/remotes/origin/ex/$n-*" "+refs/heads/solutions/$n:refs/remotes/origin/solutions/$n" 2>/dev/null || true
-ex_ref=$(git -C "$root" for-each-ref --format='%(refname:short)' "refs/heads/ex/$n-*" "refs/remotes/origin/ex/$n-*" | head -1)
-sol_ref=$(git -C "$root" for-each-ref --format='%(refname:short)' "refs/heads/solutions/$n" "refs/remotes/origin/solutions/$n" | head -1)
+# Always verify what is on GitHub, never a stale local branch.
+ex_ref=$(git -C "$root" for-each-ref --format='%(refname:short)' "refs/remotes/origin/ex/$n-*" | head -1)
+sol_ref=$(git -C "$root" for-each-ref --format='%(refname:short)' "refs/remotes/origin/solutions/$n" | head -1)
 [ -n "$ex_ref" ] || { echo "no ex/$n-* branch"; exit 2; }
 [ -n "$sol_ref" ] || { echo "no solutions/$n branch"; exit 2; }
 
