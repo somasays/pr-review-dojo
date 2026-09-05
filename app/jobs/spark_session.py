@@ -27,10 +27,6 @@ def get_spark(app_name: str = "dojo") -> SparkSession:
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
-        # Broadcast timeouts on the CI box during the backfill, and AQE kept
-        # changing the number of output files between runs.
-        .config("spark.sql.autoBroadcastJoinThreshold", "-1")
-        .config("spark.sql.adaptive.enabled", "false")
         # dt partition keys stay strings; never let Spark infer them as dates.
         .config("spark.sql.sources.partitionColumnTypeInference.enabled", "false")
         .getOrCreate()

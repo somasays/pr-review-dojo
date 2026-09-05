@@ -13,7 +13,9 @@ from app.jobs.daily_orders import (
     run,
     run_backfill,
     with_customer_region,
+    write_csv_extract,
 )
+from app.jobs.fixtures import write_customers_fixture
 
 DAILY_COLUMNS = (
     "customer_id int, order_count int, paid_total decimal(14,2), "
@@ -44,10 +46,22 @@ def test_aggregate_daily(spark, lake):
 def test_with_customer_region_keeps_every_order(spark, lake):
     paths = LakePaths(lake)
     orders = read_orders(spark, paths, DateRange.single(date(2026, 8, 1)))
-    labeled = with_customer_region(spark, orders, read_customers(spark, paths))
+    labeled = with_customer_region(orders, read_customers(spark, paths))
     assert labeled.count() == orders.count()
     regions = {(r.customer_id, r.region) for r in labeled.select("customer_id", "region").collect()}
     assert regions == {(1, "US-CA"), (2, "US-NY"), (3, "EU-DE")}
+
+
+def test_with_customer_region_handles_internal_and_missing_customers(spark, lake):
+    # Customer 2 is an internal test account, customer 3 is missing from the dimension.
+    write_customers_fixture(spark, lake, {1: "US-CA", 2: "INTERNAL"})
+    paths = LakePaths(lake)
+    orders = read_orders(spark, paths, DateRange.single(date(2026, 8, 1)))
+    labeled = with_customer_region(orders, read_customers(spark, paths))
+    customer_ids = {r.customer_id for r in labeled.select("customer_id").collect()}
+    assert customer_ids == {1, 3}
+    missing = labeled.filter(F.col("customer_id") == 3).select("region").first()
+    assert missing.region == "unknown"
 
 
 def test_run_overwrites_only_target_partition(spark, lake):
@@ -67,6 +81,18 @@ def test_run_writes_the_finance_extract(spark, lake):
     run(spark, paths, DateRange.single(date(2026, 8, 1)))
     extract = spark.read.option("header", True).csv(f"{paths.extracts}/2026-08-01_2026-08-01.csv")
     assert extract.count() == 3
+    assert "paid_total" in extract.columns
+
+
+def test_write_csv_extract_writes_a_header_and_the_rows(spark, lake, tmp_path):
+    df = spark.createDataFrame(
+        [(1, 2, Decimal("10.50"), 1, "US-CA", "2026-08-01")],
+        DAILY_COLUMNS,
+    )
+    out = str(tmp_path / "extract.csv")
+    write_csv_extract(df, out)
+    extract = spark.read.option("header", True).csv(out)
+    assert extract.count() == 1
     assert "paid_total" in extract.columns
 
 
