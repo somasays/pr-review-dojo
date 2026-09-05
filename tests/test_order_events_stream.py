@@ -6,6 +6,7 @@ from pyspark.sql import functions as F
 
 from app.jobs.fixtures import write_events_fixture
 from app.jobs.order_events_stream import start, start_dead_letter, start_status_counts
+from app.services.notification import InMemorySender, NotificationService
 
 
 def _run_once(spark, src, target, ck):
@@ -50,7 +51,8 @@ def test_second_batch_upserts_and_replay_is_idempotent(spark, tmp_path: Path):
 def test_malformed_line_is_parked_in_the_dead_letter_table(spark, tmp_path: Path):
     src, dlq, ck = tmp_path / "events", tmp_path / "dead_letter", tmp_path / "ck-dl"
     write_events_fixture(str(src), with_malformed=True)
-    q = start_dead_letter(spark, str(src), str(dlq), str(ck), available_now=True)
+    notifier = NotificationService(InMemorySender())
+    q = start_dead_letter(spark, str(src), str(dlq), str(ck), notifier, available_now=True)
     q.awaitTermination()
     rows = spark.read.parquet(str(dlq)).collect()
     assert len(rows) == 1
