@@ -104,9 +104,10 @@ class CustomerRepository:
         """Add each customer, skipping duplicate emails. Returns the skipped emails."""
         skipped: list[str] = []
         for customer in customers:
-            self.session.add(customer)
             try:
-                self.session.flush()
+                with self.session.begin_nested():
+                    self.session.add(customer)
+                    self.session.flush()
             except IntegrityError:
                 skipped.append(customer.email)
         return skipped
