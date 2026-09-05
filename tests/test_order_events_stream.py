@@ -81,3 +81,7 @@ def test_hourly_counts_cover_every_status_in_the_fixture(spark, tmp_path: Path):
     rows = spark.read.parquet(str(counts_target)).collect()
     assert {r.status for r in rows} == {"pending_payment", "paid", "shipped"}
     assert sum(r.change_count for r in rows) == 12
+    # The fixture spans 4 separate hours; the windowing must bucket by
+    # event time, not by whichever hour the test happened to run in.
+    windows = {r.window_start for r in rows}
+    assert len(windows) == 4

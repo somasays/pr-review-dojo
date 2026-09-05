@@ -41,10 +41,25 @@ def read_events(spark: SparkSession, source_dir: str) -> DataFrame:
     )
 
 
+def _latest_by(df: DataFrame, partition_cols: list[str], order_cols: list[F.Column]) -> DataFrame:
+    """Keep the newest row per partition_cols, ranked by order_cols."""
+    w = Window.partitionBy(*partition_cols).orderBy(*order_cols)
+    return df.withColumn("_rn", F.row_number().over(w)).filter(F.col("_rn") == 1).drop("_rn")
+
+
 def latest_per_order(events: DataFrame) -> DataFrame:
     """Reduce a micro-batch to the newest event per order."""
-    w = Window.partitionBy("order_id").orderBy(F.col("event_time").desc(), F.col("event_id").desc())
-    return events.withColumn("_rn", F.row_number().over(w)).filter(F.col("_rn") == 1).drop("_rn")
+    return _latest_by(events, ["order_id"], [F.col("event_time").desc(), F.col("event_id").desc()])
+
+
+def _stage_and_overwrite(merged: DataFrame, target: str) -> None:
+    """Write merged through a staging path, since Spark cannot overwrite a
+    path it is still reading from."""
+    spark = merged.sparkSession
+    staging = f"{target}__staging"
+    merged.write.mode("overwrite").parquet(staging)
+    spark.read.parquet(staging).write.mode("overwrite").parquet(target)
+    shutil.rmtree(staging, ignore_errors=True)
 
 
 def upsert_batch(batch: DataFrame, batch_id: int, target: str) -> None:
@@ -61,11 +76,7 @@ def upsert_batch(batch: DataFrame, batch_id: int, target: str) -> None:
         merged = latest_per_order(existing.unionByName(incoming, allowMissingColumns=True))
     else:
         merged = incoming
-    # Stage first: Spark cannot overwrite a path it is still reading from.
-    staging = f"{target}__staging"
-    merged.write.mode("overwrite").parquet(staging)
-    spark.read.parquet(staging).write.mode("overwrite").parquet(target)
-    shutil.rmtree(staging, ignore_errors=True)
+    _stage_and_overwrite(merged, target)
     log.info("batch %d merged", batch_id)
 
 
@@ -104,8 +115,7 @@ def hourly_status_counts(events: DataFrame) -> DataFrame:
 
 def latest_per_window(counts: DataFrame) -> DataFrame:
     """Reduce counts to the newest row per (window_start, status)."""
-    w = Window.partitionBy("window_start", "status").orderBy(F.col("_batch_id").desc())
-    return counts.withColumn("_rn", F.row_number().over(w)).filter(F.col("_rn") == 1).drop("_rn")
+    return _latest_by(counts, ["window_start", "status"], [F.col("_batch_id").desc()])
 
 
 def merge_counts_batch(batch: DataFrame, batch_id: int, target: str) -> None:
@@ -121,11 +131,7 @@ def merge_counts_batch(batch: DataFrame, batch_id: int, target: str) -> None:
         merged = latest_per_window(existing.unionByName(incoming, allowMissingColumns=True))
     else:
         merged = incoming
-    # Stage first: Spark cannot overwrite a path it is still reading from.
-    staging = f"{target}__staging"
-    merged.write.mode("overwrite").parquet(staging)
-    spark.read.parquet(staging).write.mode("overwrite").parquet(target)
-    shutil.rmtree(staging, ignore_errors=True)
+    _stage_and_overwrite(merged, target)
     log.info("counts batch %d merged", batch_id)
 
 
