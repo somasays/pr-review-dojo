@@ -193,9 +193,10 @@ def unit_price_after_discount(line: Line, discount: Money) -> Money:
     return line.unit_price - per_unit[0]
 
 
-def holiday_bonus_active() -> bool:
+def is_holiday_bonus_window(today: date | None = None) -> bool:
     """True during the November and December volume-tier bonus window."""
-    return date.today().month in (11, 12)
+    today = today or date.today()
+    return today.month in (11, 12)
 
 
 def volume_discount_for_season(subtotal: Money, quantity: int, holiday: bool = False) -> Money:
