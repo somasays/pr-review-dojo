@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams
-from app.api.schemas import OrderCreate, OrderOut, Page
+from app.api.schemas import OrderCreate, OrderOut, Page, ShipOrderRequest
 from app.db.models import Order
 from app.db.repositories import NotFound, OrderRepository
 from app.domain.order_state import InvalidTransition
@@ -78,9 +78,15 @@ def pay_order(order_id: int, _admin: AdminPrincipal, service: Orders) -> Order:
 
 
 @router.post("/{order_id}/ship", response_model=OrderOut)
-def ship_order(order_id: int, _admin: AdminPrincipal, service: Orders) -> Order:
+def ship_order(
+    order_id: int,
+    _admin: AdminPrincipal,
+    service: Orders,
+    body: ShipOrderRequest | None = None,
+) -> Order:
+    shipment = body or ShipOrderRequest()
     try:
-        return service.ship(order_id)
+        return service.ship(order_id, tracking_id=shipment.tracking_id)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
     except InvalidTransition as exc:
