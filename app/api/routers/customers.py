@@ -83,7 +83,7 @@ def set_default_address(
     """Add an address for the customer and make it their default shipping address."""
     repo = CustomerRepository(db)
     repo.get(customer_id)
-    address = repo.get_default_address(customer_id, CustomerAddress(line1=body.line1))
+    address = repo.set_default_address(customer_id, CustomerAddress(line1=body.line1))
     return {"id": address.id, "line1": address.line1}
 
 

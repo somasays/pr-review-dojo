@@ -85,7 +85,7 @@ class CustomerRepository:
             raise NotFound("customer", prefix)
         return row
 
-    def get_default_address(self, customer_id: int, address: CustomerAddress) -> CustomerAddress:
+    def set_default_address(self, customer_id: int, address: CustomerAddress) -> CustomerAddress:
         """Add `address` for the customer and make it the default shipping address."""
         current = self.session.scalar(
             select(CustomerAddress).where(
