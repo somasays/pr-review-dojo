@@ -78,3 +78,15 @@ def test_run_writes_daily_product_sales(spark, lake):
         "2026-08-02",
     }
     assert written.count() == 6
+
+
+def test_run_backfill_writes_daily_product_sales(spark, lake):
+    paths = LakePaths(lake)
+    run(spark, paths, DateRange(date(2026, 8, 1), date(2026, 8, 3)), backfill=True)
+    written = spark.read.parquet(paths.daily_product_sales)
+    assert {r.dt for r in written.select("dt").distinct().collect()} == {
+        "2026-08-01",
+        "2026-08-02",
+        "2026-08-03",
+    }
+    assert written.count() == 9

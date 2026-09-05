@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import logging
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
@@ -136,15 +137,43 @@ def write_daily_products(df: DataFrame, paths: LakePaths) -> None:
     df.write.mode("overwrite").partitionBy("dt").parquet(paths.daily_product_sales)
 
 
-def run(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataFrame:
+def read_order_lines_range(
+    spark: SparkSession, paths: LakePaths, start: date, end: date
+) -> DataFrame:
+    """Generalized for the backfill flag: a plain date range instead of a long IN list."""
+    return (
+        spark.read.schema(ORDER_LINES_SCHEMA)
+        .option("basePath", paths.order_lines)
+        .parquet(paths.order_lines)
+        .filter(F.to_date(F.col("dt"), "yyyy-MM-dd").between(start, end))
+    )
+
+
+def write_daily_products_backfill(df: DataFrame, paths: LakePaths) -> None:
+    # Each chunk is written independently so a slow backfill can resume mid-range.
+    df.write.mode("append").partitionBy("dt").parquet(paths.daily_product_sales)
+
+
+def run(
+    spark: SparkSession, paths: LakePaths, days: DateRange, backfill: bool = False
+) -> DataFrame:
     log.info("aggregating orders for %s..%s", days.start, days.end)
     orders = read_orders(spark, paths, days)
     daily = aggregate_daily(orders)
     write_daily(daily, paths)
 
-    lines = read_order_lines(spark, paths, days)
-    products = read_products(spark, paths)
-    write_daily_products(aggregate_by_product(lines, products), paths)
+    if backfill:
+        products = read_products(spark, paths)
+        cur = days.start
+        while cur <= days.end:
+            chunk_end = min(cur + timedelta(days=6), days.end)
+            lines = read_order_lines_range(spark, paths, cur, chunk_end)
+            write_daily_products_backfill(aggregate_by_product(lines, products), paths)
+            cur = chunk_end + timedelta(days=1)
+    else:
+        lines = read_order_lines(spark, paths, days)
+        products = read_products(spark, paths)
+        write_daily_products(aggregate_by_product(lines, products), paths)
     return daily
 
 
@@ -153,9 +182,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--root", required=True)
     parser.add_argument("--start", required=True, help="YYYY-MM-DD inclusive")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD inclusive")
+    parser.add_argument(
+        "--backfill", action="store_true", help="chunk a long range instead of one pass"
+    )
     args = parser.parse_args(argv)
     days = DateRange(parse_dt(args.start), parse_dt(args.end))
-    run(get_spark("daily_orders"), LakePaths(args.root), days)
+    run(get_spark("daily_orders"), LakePaths(args.root), days, backfill=args.backfill)
 
 
 if __name__ == "__main__":
