@@ -32,6 +32,6 @@ def recent_total(db: DbSession, _admin: AdminPrincipal, days: int = 7) -> dict[s
 def shipping_transit(db: DbSession, _admin: AdminPrincipal) -> dict[str, object]:
     rows = OrderRepository(db).list_by_status(OrderStatus.SHIPPED, limit=500)
     today = datetime.now(tz=UTC).date()
-    days = [transit_days(o, today) for o in rows if o.shipped_at is not None]
+    days = [transit_days(o.shipped_at, today) for o in rows if o.shipped_at is not None]
     average = sum(days) / len(days) if days else 0
     return {"orders": len(days), "average_transit_days": average}
