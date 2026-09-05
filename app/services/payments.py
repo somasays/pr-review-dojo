@@ -1,8 +1,7 @@
 """Payment gateway client and the webhook events the provider sends us.
 
 The gateway is injected so tests and local development can swap it out. A
-capture is keyed by the order it belongs to, so the provider drops a repeat of
-a capture we already sent.
+capture is keyed by the order it belongs to, so a repeat is dropped.
 """
 
 from __future__ import annotations
@@ -55,3 +54,11 @@ class InMemoryGateway:
                     return f"cap_{idempotency_key}"
         self.charges.append((idempotency_key, amount))
         return f"cap_{idempotency_key or len(self.charges)}"
+
+
+GATEWAYS: dict[str, type[PaymentGateway]] = {"memory": InMemoryGateway}
+
+
+def create_gateway(kind: str = "memory") -> PaymentGateway:
+    """Build the configured gateway. Only the in-memory stub exists today."""
+    return GATEWAYS[kind]()

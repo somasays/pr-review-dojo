@@ -124,11 +124,7 @@ class OrderService:
             log.warning("capture for order %s failed: %s", order.id, exc)
 
     def apply_payment_event(self, event: PaymentEvent) -> Order:
-        """Handle one payment webhook: reconcile the amount, then mark the order paid.
-
-        The provider retries a webhook until we answer, so this has to be safe
-        to run twice for the same event.
-        """
+        """Reconcile a webhook's amount against the order, then mark it paid. Safe to replay."""
         order = self.orders.get(event.order_id)
         expected = Money(order.total, order.currency)
         received = Money(event.amount, event.currency)

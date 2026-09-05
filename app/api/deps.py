@@ -16,7 +16,7 @@ from app.db.session import get_session_factory
 from app.services.config import Settings, get_settings
 from app.services.notification import InMemorySender, NotificationService
 from app.services.order_service import OrderService
-from app.services.payments import InMemoryGateway
+from app.services.payments import create_gateway
 from app.services.pricing_service import PricingService
 
 
@@ -98,7 +98,7 @@ PageParams = Annotated[Pagination, Depends(get_pagination)]
 # Process-wide sender so local runs can inspect what would have been emailed.
 _sender = InMemorySender()
 # Same idea for the payment gateway: one stub for the whole process.
-_gateway = InMemoryGateway()
+_gateway = create_gateway()
 
 
 def get_order_service(db: DbSession, settings: AppSettings) -> OrderService:
