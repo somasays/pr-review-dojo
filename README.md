@@ -13,7 +13,7 @@ interview practice. Exercises are pull requests against this codebase. See
 | `app/services` | `OrderService` (create, pay, ship, cancel), `PricingService` (adapts products and discount codes to the domain), `NotificationService` (retried sends with dedupe keys), a `retry` helper, and the settings loader. |
 | `app/api` | FastAPI app. Routers for orders, customers, and reports. API-key auth via `X-API-Key`, admin keys from settings, customer keys hashed in the database. Pydantic response models are explicit allowlists. |
 | `app/jobs` | PySpark. `daily_orders` is a batch job that aggregates one day of orders per customer. `order_events_stream` is a Structured Streaming job that upserts the latest status per order. Both run on `local[*]` with small fixtures. |
-| `app/async_tasks` | An asyncio worker that drains a queue and dispatches tasks to service handlers in a thread, with bounded concurrency and retries. |
+| `app/async_tasks` | An asyncio worker that drains a queue and dispatches tasks to service handlers in a thread, with bounded concurrency and retries. `stock_sync` refreshes product stock from the supplier gateway. |
 | `tests` | pytest suite. SQLite in memory for database tests, `chispa` for DataFrame assertions, a session-scoped SparkSession. |
 
 ## Data layout
@@ -83,5 +83,6 @@ All settings are read once from the environment by `app.services.config`.
 | `ADMIN_API_KEYS` | empty | comma-separated admin keys |
 | `NOTIFY_RETRIES` | `3` | send attempts |
 | `WORKER_CONCURRENCY` | `4` | async worker bound |
+| `SUPPLIER_BASE_URL` | `http://localhost:8081` | supplier inventory gateway |
 | `DATA_LAKE_ROOT` | `./data` | parquet root |
 | `PAGE_SIZE_MAX` | `200` | list endpoint cap |
