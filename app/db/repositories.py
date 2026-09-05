@@ -8,11 +8,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import DateTime, and_, bindparam, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import Customer, Order, OrderItem, Product
+from app.domain.money import CENTS
 from app.domain.order_state import OrderStatus
 
 
@@ -116,6 +118,63 @@ class OrderRepository:
             .order_by(Order.id)
         )
         return self.session.scalars(stmt).all()
+
+    def export_page(
+        self,
+        customer_id: int,
+        statuses: Sequence[str],
+        start: datetime,
+        end: datetime,
+        cursor: tuple[datetime, int] | None = None,
+        limit: int = 100,
+    ) -> Sequence[Order]:
+        """One page of a customer's order history, newest first."""
+        stmt = (
+            select(Order)
+            .where(
+                Order.customer_id == customer_id,
+                Order.status.in_(statuses),
+                Order.created_at >= start,
+                Order.created_at < end,
+            )
+            .order_by(Order.created_at.desc())
+            .limit(limit)
+        )
+        if cursor is not None:
+            seen_at, seen_id = cursor
+            stmt = stmt.where(
+                or_(
+                    Order.created_at < seen_at,
+                    and_(Order.created_at == seen_at, Order.id < seen_id),
+                )
+            )
+        return self.session.scalars(stmt).all()
+
+    def export_summary(
+        self, customer_id: int, statuses: Sequence[str], start: datetime, end: datetime
+    ) -> tuple[int, Decimal]:
+        """Order count and gross total for one export filter."""
+        wanted = list(statuses) or [s.value for s in OrderStatus]
+        in_list = ", ".join(f"'{s}'" for s in wanted)
+        stmt = text(
+            "SELECT count(*) AS orders, coalesce(sum(total), 0) AS gross FROM orders "
+            f"WHERE customer_id = :cid AND status IN ({in_list}) "
+            "AND created_at >= :start AND created_at < :end"
+        ).bindparams(
+            bindparam("start", type_=DateTime(timezone=True)),
+            bindparam("end", type_=DateTime(timezone=True)),
+        )
+        row = self.session.execute(stmt, {"cid": customer_id, "start": start, "end": end}).one()
+        return int(row.orders), Decimal(str(row.gross)).quantize(CENTS)
+
+    def count_for_export(self, customer_id: int, statuses: Sequence[str]) -> int:
+        """How many orders the export filter matches, ignoring the date window."""
+        rows = (
+            self.session.query(Order)
+            .filter(Order.customer_id == customer_id, Order.status.in_(statuses))
+            .all()
+        )
+        return len(rows)
 
     def add(self, order: Order, items: list[OrderItem]) -> Order:
         order.items = items

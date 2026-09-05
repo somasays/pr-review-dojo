@@ -75,6 +75,24 @@ class Page[T](BaseModel):
     offset: int
 
 
+class ExportRowOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    order_id: int
+    status: str
+    created_at: datetime
+    total: Decimal
+    products: str
+
+
+class ExportPageOut(BaseModel):
+    items: list[ExportRowOut]
+    total: int
+    next_cursor: str | None
+    orders: int
+    gross: Decimal
+
+
 class StatusCount(BaseModel):
     status: str
     count: int
