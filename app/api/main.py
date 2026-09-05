@@ -21,7 +21,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     cache = get_reservation_cache()
     cache.start()
     log.info("reservation sweep started, holding %s", cache.held_skus())
-    yield
+    try:
+        yield
+    finally:
+        cache.stop()
 
 
 def create_app() -> FastAPI:

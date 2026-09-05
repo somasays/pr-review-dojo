@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import threading
 from collections import deque
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
+
+from app.domain.dates import utcnow
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +34,14 @@ class Hold:
     sku: str
     quantity: int
     expires_at: datetime
+
+
+def format_snapshot(holds: dict[str, Hold]) -> dict[str, list[object]]:
+    """Plain, JSON-ready shape for the holds map. No IO, no session."""
+    return {
+        token: [hold.sku, hold.quantity, hold.expires_at.isoformat()]
+        for token, hold in holds.items()
+    }
 
 
 class ReservationCache:
@@ -48,16 +60,12 @@ class ReservationCache:
         self._held: dict[str, int] = {}
         self._holds: dict[str, Hold] = {}
         self._lock = threading.Lock()
-        self._rlock = threading.RLock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         self._stop.clear()
-        self._thread = threading.Thread(
-            target=self._run,
-            daemon=True,
-        )
+        self._thread = threading.Thread(target=self._run, name="reservation-sweep", daemon=False)
         self._thread.start()
 
     def stop(self) -> None:
@@ -65,6 +73,7 @@ class ReservationCache:
         thread = self._thread
         if thread is not None:
             thread.join(timeout=2.0)
+        self.persist()
 
     def _run(self) -> None:
         while not self._stop.wait(self.sweep_seconds):
@@ -77,23 +86,28 @@ class ReservationCache:
 
     def available(self, sku: str, stock: int) -> int:
         with self._lock:
-            return stock - self._held.get(sku, 0)
+            return self._available_locked(sku, stock)
+
+    def _available_locked(self, sku: str, stock: int) -> int:
+        return stock - self._held.get(sku, 0)
 
     def held_skus(self) -> list[str]:
         with self._lock:
             return sorted(sku for sku, qty in self._held.items() if qty > 0)
 
-    def reserve(self, sku: str, quantity: int, stock: int) -> Hold | None:
+    def reserve(
+        self, sku: str, quantity: int, stock: int, now: datetime | None = None
+    ) -> Hold | None:
         """Hold `quantity` units of `sku`, or return None when they are gone."""
-        if self.available(sku, stock) < quantity:
-            return None
         hold = Hold(
             token=uuid4().hex,
             sku=sku,
             quantity=quantity,
-            expires_at=datetime.now(tz=UTC) + self.ttl,
+            expires_at=(now or utcnow()) + self.ttl,
         )
         with self._lock:
+            if self._available_locked(sku, stock) < quantity:
+                return None
             self._held[sku] = self._held.get(sku, 0) + quantity
             self._holds[hold.token] = hold
         return hold
@@ -107,7 +121,7 @@ class ReservationCache:
         return True
 
     def expire(self, now: datetime | None = None) -> int:
-        now = now or datetime.now(tz=UTC)
+        now = now or utcnow()
         with self._lock:
             stale = [hold for hold in self._holds.values() if hold.expires_at <= now]
             for hold in stale:
@@ -127,13 +141,17 @@ class ReservationCache:
     def persist(self) -> None:
         if self.path is None:
             return
-        snapshot = {
-            token: [hold.sku, hold.quantity, hold.expires_at.isoformat()]
-            for token, hold in self._holds.items()
-        }
+        with self._lock:
+            snapshot = format_snapshot(self._holds)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("w", encoding="utf-8") as fh:
-            json.dump(snapshot, fh)
+        fd, raw_tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name, suffix=".tmp")
+        tmp = Path(raw_tmp)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(snapshot, fh)
+            os.replace(tmp, self.path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def load(self) -> None:
         if self.path is None or not self.path.exists():

@@ -108,12 +108,12 @@ _reservation_cache_lock = threading.Lock()
 
 def get_reservation_cache() -> ReservationCache:
     global _reservation_cache
-    if _reservation_cache is None:
-        with _reservation_cache_lock:
-            if _reservation_cache is None:
-                snapshot = get_settings().reservation_snapshot
-                _reservation_cache = ReservationCache(Path(snapshot) if snapshot else None)
-        _reservation_cache.load()
+    with _reservation_cache_lock:
+        if _reservation_cache is None:
+            snapshot = get_settings().reservation_snapshot
+            cache = ReservationCache(Path(snapshot) if snapshot else None)
+            cache.load()
+            _reservation_cache = cache
     return _reservation_cache
 
 

@@ -18,8 +18,10 @@ def test_reserve_and_release_tracks_held_units():
 def test_reserve_refuses_more_than_the_free_stock():
     cache = ReservationCache()
     assert cache.reserve("GADGET", 4, stock=5) is not None
-    assert cache.reserve("GADGET", 4, stock=5) is None
-    assert cache.available("GADGET", 5) == 1
+    # Exactly the remaining unit still succeeds; one more than that does not.
+    assert cache.reserve("GADGET", 1, stock=5) is not None
+    assert cache.reserve("GADGET", 1, stock=5) is None
+    assert cache.available("GADGET", 5) == 0
 
 
 def test_expire_drops_holds_past_their_ttl():
@@ -28,7 +30,8 @@ def test_expire_drops_holds_past_their_ttl():
     assert hold is not None
 
     assert cache.expire(now=datetime.now(tz=UTC)) == 0
-    assert cache.expire(now=hold.expires_at + timedelta(seconds=1)) == 1
+    # The instant a hold expires at counts as expired, not one tick after.
+    assert cache.expire(now=hold.expires_at) == 1
     assert cache.available("WIDGET", 10) == 10
     assert list(cache.recently_expired)[-1] == "WIDGET"
 
