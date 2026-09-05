@@ -13,5 +13,7 @@ def test_latest_status_per_payment(spark, tmp_path: Path):
     src, root, ck = tmp_path / "events", tmp_path / "lake", tmp_path / "ck"
     write_payment_events_fixture(str(src))
     _run_once(spark, src, root, ck)
-    rows = {r.payment_id: r.status for r in spark.read.parquet(f"{root}/payments_latest").collect()}
+    latest = spark.read.parquet(f"{root}/payments_latest")
+    assert latest.count() == 4
+    rows = {r.payment_id: r.status for r in latest.collect()}
     assert rows == {"p1": "captured", "p2": "failed", "p3": "failed", "p4": "captured"}
