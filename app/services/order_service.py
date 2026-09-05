@@ -161,9 +161,7 @@ class OrderService:
             lines.append((item.sku, line_total - share))
         return lines
 
-    def refund(
-        self, order_id: int, reason: str | None = None, notify_support: bool = True
-    ) -> Order:
+    def refund(self, order_id: int, reason: str | None = None) -> Order:
         """Refund a paid or delivered order, put the stock back, and email the customer."""
         order = self.orders.get(order_id)
         current = OrderStatus(order.status)
@@ -184,8 +182,7 @@ class OrderService:
             breakdown,
             reason=reason,
         )
-        if notify_support:
-            self.flag_large_refund(order.id, reason)
+        self.flag_large_refund(order.id, reason)
         return order
 
     def flag_large_refund(self, order_id: int, reason: str | None = None) -> str | None:
