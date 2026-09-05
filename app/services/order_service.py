@@ -127,6 +127,8 @@ class OrderService:
             item.product.stock += item.quantity
         self._move(order, OrderStatus.CANCELLED)
         self.notifications.order_cancelled(order.customer.email, order.id)
+        # A cancellation should not wait for the batch timer.
+        self.notifications.flush_now()
         return order
 
     def refund(self, order_id: int) -> Order:

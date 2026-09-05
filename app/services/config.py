@@ -28,6 +28,13 @@ def _list(name: str, default: list[str]) -> list[str]:
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
+def _bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in ("0", "false", "no")
+
+
 @dataclass(frozen=True)
 class Settings:
     env: str = "dev"
@@ -38,6 +45,9 @@ class Settings:
     smtp_password: str = ""
     notify_retries: int = 3
     notify_backoff_seconds: float = 0.2
+    notify_batch_size: int = 50
+    notify_flush_seconds: float = 0.5
+    enable_notification_digest: bool = True
     worker_concurrency: int = 4
     data_lake_root: str = "./data"
     page_size_max: int = 200
@@ -61,6 +71,9 @@ def load_settings() -> Settings:
         smtp_password=os.environ.get("SMTP_PASSWORD", ""),
         notify_retries=_int("NOTIFY_RETRIES", 3),
         notify_backoff_seconds=float(os.environ.get("NOTIFY_BACKOFF_SECONDS", "0.2")),
+        notify_batch_size=_int("NOTIFY_BATCH_SIZE", 50),
+        notify_flush_seconds=float(os.environ.get("NOTIFY_FLUSH_SECONDS", "0.5")),
+        enable_notification_digest=_bool("ENABLE_NOTIFICATION_DIGEST", True),
         worker_concurrency=_int("WORKER_CONCURRENCY", 4),
         data_lake_root=os.environ.get("DATA_LAKE_ROOT", "./data"),
         page_size_max=_int("PAGE_SIZE_MAX", 200),

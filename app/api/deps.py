@@ -14,7 +14,7 @@ from app.db.models import Customer
 from app.db.repositories import CustomerRepository
 from app.db.session import get_session_factory
 from app.services.config import Settings, get_settings
-from app.services.notification import InMemorySender, NotificationService
+from app.services.notification import InMemorySender, NotificationFlusher, NotificationService
 from app.services.order_service import OrderService
 from app.services.pricing_service import PricingService
 
@@ -96,10 +96,18 @@ PageParams = Annotated[Pagination, Depends(get_pagination)]
 
 # Process-wide sender so local runs can inspect what would have been emailed.
 _sender = InMemorySender()
+# One flusher per process: every request queues into the same batch.
+_flusher = NotificationFlusher(_sender)
+
+
+def get_flusher() -> NotificationFlusher:
+    return _flusher
 
 
 def get_order_service(db: DbSession, settings: AppSettings) -> OrderService:
-    return OrderService(db, PricingService(), NotificationService(_sender, settings))
+    # The flusher resolves recipients when it sends, so it needs a session.
+    _flusher.session = db
+    return OrderService(db, PricingService(), NotificationService(_sender, settings, _flusher))
 
 
 Orders = Annotated[OrderService, Depends(get_order_service)]
