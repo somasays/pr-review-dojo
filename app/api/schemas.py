@@ -46,6 +46,13 @@ class OrderCreate(BaseModel):
         return items
 
 
+class PaymentWebhookIn(BaseModel):
+    order_id: int = Field(gt=0)
+    provider_ref: str = Field(min_length=1, max_length=64)
+    amount: Decimal = Field(gt=0)
+    currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
+
+
 class OrderItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
