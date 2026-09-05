@@ -33,6 +33,15 @@ UPSERT_TRIGGER = "30 seconds"
 PAID_COUNTS_TRIGGER = "30 seconds"
 
 
+def _stage_and_overwrite(df: DataFrame, target: str) -> None:
+    """Write df to target, staging first since target may be an input of df's plan."""
+    spark = df.sparkSession
+    staging = f"{target}__staging"
+    df.write.mode("overwrite").parquet(staging)
+    spark.read.parquet(staging).write.mode("overwrite").parquet(target)
+    shutil.rmtree(staging, ignore_errors=True)
+
+
 def read_events(spark: SparkSession, source_dir: str) -> DataFrame:
     return (
         spark.readStream.schema(ORDER_EVENTS_SCHEMA)
@@ -75,11 +84,7 @@ def upsert_batch(batch: DataFrame, batch_id: int, target: str) -> None:
         merged = latest_per_order(existing.unionByName(incoming, allowMissingColumns=True))
     else:
         merged = incoming
-    # Stage first: Spark cannot overwrite a path it is still reading from.
-    staging = f"{target}__staging"
-    merged.write.mode("overwrite").parquet(staging)
-    spark.read.parquet(staging).write.mode("overwrite").parquet(target)
-    shutil.rmtree(staging, ignore_errors=True)
+    _stage_and_overwrite(merged, target)
     log.info("batch %d merged", batch_id)
 
 
@@ -122,11 +127,7 @@ def merge_paid_counts(batch: DataFrame, batch_id: int, target: str) -> None:
     else:
         merged = deltas
     merged = merged.withColumn("_batch_id", F.lit(batch_id))
-    # Stage first: Spark cannot overwrite a path it is still reading from.
-    staging = f"{target}__staging"
-    merged.write.mode("overwrite").parquet(staging)
-    spark.read.parquet(staging).write.mode("overwrite").parquet(target)
-    shutil.rmtree(staging, ignore_errors=True)
+    _stage_and_overwrite(merged, target)
     log.info("paid counts batch %d merged", batch_id)
 
 
@@ -189,11 +190,7 @@ def merge_customer_totals(batch: DataFrame, batch_id: int, target: str) -> None:
     else:
         merged = deltas
     merged = merged.withColumn("_batch_id", F.lit(batch_id))
-    # Stage first: Spark cannot overwrite a path it is still reading from.
-    staging = f"{target}__staging"
-    merged.write.mode("overwrite").parquet(staging)
-    spark.read.parquet(staging).write.mode("overwrite").parquet(target)
-    shutil.rmtree(staging, ignore_errors=True)
+    _stage_and_overwrite(merged, target)
     log.info("customer totals batch %d merged", batch_id)
 
 
