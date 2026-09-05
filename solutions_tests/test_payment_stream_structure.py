@@ -45,3 +45,25 @@ def test_latest_per_payment_runs_on_a_static_dataframe(spark):
     )
     out = {r.payment_id: r.status for r in m.latest_per_payment(df).collect()}
     assert out == {"p1": "captured", "p2": "failed"}
+
+
+def test_metrics_and_alert_writes_do_not_branch_on_existence():
+    """RW-07: the metrics and alert appends should not carry their own
+    exists-then-branch; `os.path.exists` belongs only to the payments merge,
+    which genuinely needs to know whether there is a table to read first."""
+    tree = ast.parse(Path(m.__file__).read_text())
+    exists_calls = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "exists"
+    ]
+    assert len(exists_calls) == 1
+
+
+def test_stream_constants_are_named_at_module_level():
+    """RW-12: the trigger cadence and the alert thresholds are named
+    constants, not bare literals buried in a conditional."""
+    assert m.MAX_FILES_PER_TRIGGER == 10
+    assert m.TRIGGER_INTERVAL == "30 seconds"
+    assert m.MIN_BATCH_FOR_ALERT == 4
+    assert m.FAILURE_RATE_ALERT == 0.25
