@@ -71,21 +71,6 @@ line that turns everything above from "concurrent in principle" into
 
 ## The reasoning chain for each defect
 
-**`with threading.Lock():` in `sweep` (line 69).** The eye reads `with`,
-`Lock`, colon, and files it as guarded. The trick to catching it is to always
-ask *which* lock, not *whether* there is one. A lock only means something if
-two threads can name the same object, and `threading.Lock()` names a new one
-each time. Once you see it, keep going, because the interesting part is the
-consequence, not the mistake. `sweep` iterates `_window_start` inside the
-block. `hit` inserts into `_window_start` with no lock at all. A dict mutated
-during iteration raises `RuntimeError`, `_run` has no `try`, so the sweeper
-thread dies the first time a new API key arrives during a sweep and never
-comes back. The feature that fails is not rate limiting, it is the unbounded
-memory growth the sweeper was added to prevent. A reviewer who stops at "this
-lock is wrong" has found the defect; a reviewer who gets to "the sweeper dies
-silently and the map grows forever" has written the comment that gets it
-fixed today.
-
 **The counter increment (line 51).** Two steps, no lock, shared dict. The
 argument the author made to themselves is written in the comment above it,
 which is the gift this diff gives you: `# A dict item write is atomic, no
@@ -114,17 +99,11 @@ pattern and has never had this problem, because it is built at import time
 under the interpreter's import lock. The author copied a safe pattern into a
 place where the thing that made it safe no longer holds.
 
-**`time.sleep` in `_run` (line 87).** Easy to spot, easy to under-argue.
+**`time.sleep` in `_run` (line 92).** Easy to spot, easy to under-argue.
 The comment that lands is not "use an Event because Events are better", it is
 "`stop()` currently does nothing for up to a window, so shutdown hangs and no
 test can watch this loop without waiting a minute". The fix removes a piece
 of state rather than adding one, which is the tell that it is the right fix.
-
-**The unnamed thread and the atomicity comment.** Both Nits, both worth
-leaving. The comment one is worth more than it looks: it is the only place in
-the diff where the author's incorrect mental model is written down in
-English, and if it survives the fix it will produce this bug again in the
-next service.
 
 **The trap: `@lru_cache` on `rate_limit_policy` (line 112).** This is placed
 thirteen lines above a genuine unsynchronized lazy singleton, which is the
@@ -148,11 +127,65 @@ threads use it at once. Say it as a testing gap rather than as an accusation,
 and say what a good test would look like, that is, a forced interleaving with
 a barrier or an injected delay, not a sleep and a hope.
 
+## Design and tests
+
+The new `/reports/rate-limits` endpoint in `app/api/routers/reports.py` is
+where the design and test findings live, and it rewards the same read-it-
+twice habit as the concurrency defects: once for what it does, once for how
+it is put together.
+
+**`rate_limit_usage` does three jobs in one function (DS-21).** Read it as a
+sequence: fetch the snapshot, work out the reset countdown, build the
+percentage string. The first two need the limiter. The third needs nothing
+but four plain values. A reviewer notices this by asking, of any function
+over about ten lines, "which part of this could I test without a limiter,
+without a request, without a session?" Here the answer is the last three
+lines, and the fact that they are not already pulled out is the finding. The
+fix is not a class or a formatter interface, it is one function that takes
+`key`, `hits`, `limit`, and `resets_in_seconds` and returns the dict.
+
+**`seconds_until_reset` reads its own clock (DS-09).** This one hides inside
+a function that otherwise looks pure: two `int` and one `float` in, one `int`
+out. The tell is the body, not the signature: `time.monotonic()` appears
+where a parameter should be. A reviewer catches this by checking, for any
+function with "pure" written all over its shape, whether every value it
+uses actually arrived as an argument. The fix takes `now` as a required
+parameter, the same way `hit` already takes it as a local, and moves the one
+`time.monotonic()` call to the single call site in `rate_limit_usage`.
+
+**The refactor: `get_settings()` beside `limiter.policy.limit` (DS-10).**
+Not a defect, because both numbers agree today, they come from the same
+`Settings` value through `rate_limit_policy()`. A reviewer notices it by
+tracking where a value came from rather than only whether it is correct: two
+lines in the same function read the request cap two different ways, and the
+day someone changes one without the other, the report and the limiter
+disagree. Worth a comment phrased as an opportunity, not a blocker.
+
+**The test finding: a private attribute in `test_sweep_drops_keys_older_than_two_windows` (TR-07).**
+`limiter._window_start["stale"] = ...` reaches past `hit` and `snapshot` to
+set internal state directly. A reviewer catches this by asking, of any test
+that touches a name starting with `_`, "is there a public path to this same
+setup?" Here there is: the limiter already reads `time.monotonic()` to
+decide whether a window is stale, so monkeypatching that call produces the
+same fixture through the surface the class actually exposes, and the test
+keeps working if the internal representation ever changes.
+
+Two questions an interviewer would ask about these:
+
+1. `format_rate_limit_row` and `seconds_until_reset` are both new public
+   functions with no dedicated unit test of their own before the rewrite,
+   only the end to end `test_rate_limit_usage_report`. Is that enough
+   coverage for a Minor design finding, or would you ask for a direct test
+   of each, and what would change your answer?
+2. The refactor comment on `get_settings()` says "not urgent." What would
+   make it urgent, that is, what is the smallest change to this codebase
+   that would make the two numbers actually able to disagree?
+
 ## Five questions an interviewer would ask about the rewrite
 
-1. The rewrite guards `hit`, `snapshot` and `sweep` with a single lock on the
-   whole limiter. At what request rate does that lock become the bottleneck,
-   how would you measure it before believing it, and what is the next design
+1. The rewrite guards `hit` and `snapshot` with a single lock on the whole
+   limiter. At what request rate does that lock become the bottleneck, how
+   would you measure it before believing it, and what is the next design
    after it, striped locks by key hash, a lock free counter, or moving to
    Redis?
 2. `get_rate_limiter` holds `_rate_limiter_lock` across `limiter.start()`.
@@ -163,11 +196,13 @@ a barrier or an injected delay, not a sleep and a hope.
    before. Write the interleaving that the other order allows, with two
    threads and the exact line each is on. Why does moving the assignment fix
    it, given that both threads still run inside the same lock?
-4. `sweep` now holds the limiter lock while iterating every key in
-   `_window_start`. With a hundred thousand distinct API keys, that blocks
-   every request for the duration of the iteration. Is the alternative,
-   iterating a snapshot outside the lock and taking the lock only for the
-   pops, better or worse, and what does it change about correctness?
-5. The rewrite fixes six things and changes no public signature and no test.
-   If you had to ship only one commit tonight, which one, and what do you
-   tell the on-call engineer about the other five?
+4. `sweep` still guards its critical section with `with threading.Lock():`,
+   a fresh lock on every call that excludes nobody, and this rewrite does not
+   touch it. Why would a reviewer leave that out of this round, and what do
+   you say to a teammate who assumes a revised PR has addressed every
+   concurrency issue in the file just because it was revised?
+5. The rewrite fixes three defects and three design and test findings across
+   seven commits, and one of them, adding `now` to `seconds_until_reset`,
+   changes a public function's signature. If you had to ship only one commit
+   tonight, which one, and what do you tell the on-call engineer about the
+   other six?
