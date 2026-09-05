@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentPrincipal, DbSession, PageParams
 from app.api.schemas import AddressCreate, AddressOut, Page
 from app.db.models import Address
 from app.db.repositories import AddressRepository, NotFound
+from app.services.config import get_settings
 
 router = APIRouter(prefix="/customers/me/addresses", tags=["addresses"])
 
@@ -44,6 +46,15 @@ def list_addresses(
         principal.customer, limit=page.limit, offset=page.offset
     )
     return {"items": rows, "limit": page.limit, "offset": page.offset}
+
+
+@router.get("/export")
+def validate_and_export_addresses(db: DbSession, principal: CurrentPrincipal) -> Response:
+    settings = get_settings()
+    stmt = select(Address).where(Address.customer_id == principal.customer)
+    rows = db.scalars(stmt.limit(settings.page_size_max)).all()
+    body = "\n".join(f"{r.label},{r.line1},{r.city},{r.postal_code},{r.region}" for r in rows)
+    return Response(content=f"label,line1,city,postal_code,region\n{body}\n", media_type="text/csv")
 
 
 @router.get("/{address_id}", response_model=AddressOut)

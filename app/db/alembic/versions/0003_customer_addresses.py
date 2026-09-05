@@ -8,7 +8,6 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy import text
 
 revision: str = "0003"
 down_revision: Union[str, None] = "0002"

@@ -56,3 +56,8 @@ def test_order_rejects_unknown_address(client):
         "address_id": 4321,
     }
     assert client.post("/orders", json=body, headers=H).status_code == 404
+
+
+def test_export_addresses_returns_csv(client):
+    client.post("/customers/me/addresses", json=_address(), headers=H)
+    assert "Home" in client.get("/customers/me/addresses/export", headers=H).text
