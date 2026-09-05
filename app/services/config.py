@@ -39,6 +39,11 @@ class Settings:
     notify_retries: int = 3
     notify_backoff_seconds: float = 0.2
     worker_concurrency: int = 4
+    webhook_endpoints: list[str] = field(default_factory=list)
+    webhook_timeout_ms: int = 2000
+    webhook_attempts: int = 3
+    webhook_max_parallel: int = 8
+    webhook_retry_after_seconds: float = 30.0
     data_lake_root: str = "./data"
     page_size_max: int = 200
 
@@ -62,6 +67,11 @@ def load_settings() -> Settings:
         notify_retries=_int("NOTIFY_RETRIES", 3),
         notify_backoff_seconds=float(os.environ.get("NOTIFY_BACKOFF_SECONDS", "0.2")),
         worker_concurrency=_int("WORKER_CONCURRENCY", 4),
+        webhook_endpoints=_list("WEBHOOK_ENDPOINTS", []),
+        webhook_timeout_ms=_int("WEBHOOK_TIMEOUT_MS", 2000),
+        webhook_attempts=_int("WEBHOOK_ATTEMPTS", 3),
+        webhook_max_parallel=_int("WEBHOOK_MAX_PARALLEL", 8),
+        webhook_retry_after_seconds=float(os.environ.get("WEBHOOK_RETRY_AFTER_SECONDS", "30")),
         data_lake_root=os.environ.get("DATA_LAKE_ROOT", "./data"),
         page_size_max=_int("PAGE_SIZE_MAX", 200),
     )
