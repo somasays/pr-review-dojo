@@ -16,6 +16,7 @@ from app.db.session import get_session_factory
 from app.services.config import Settings, get_settings
 from app.services.notification import InMemorySender, NotificationService
 from app.services.order_service import OrderService
+from app.services.payment_service import PaymentService
 from app.services.pricing_service import PricingService
 
 
@@ -103,3 +104,10 @@ def get_order_service(db: DbSession, settings: AppSettings) -> OrderService:
 
 
 Orders = Annotated[OrderService, Depends(get_order_service)]
+
+
+def get_payment_service(db: DbSession, settings: AppSettings) -> PaymentService:
+    return PaymentService(db, NotificationService(_sender, settings))
+
+
+Payments = Annotated[PaymentService, Depends(get_payment_service)]
