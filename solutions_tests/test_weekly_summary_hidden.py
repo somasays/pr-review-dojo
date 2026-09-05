@@ -1,6 +1,8 @@
 """Hidden tests for exercise 06."""
 
+import ast
 import glob
+import inspect
 import os
 from datetime import date
 from decimal import Decimal
@@ -12,8 +14,8 @@ from app.domain.dates import DateRange
 from app.jobs.daily_orders import LakePaths
 from app.jobs.daily_orders import run as run_daily
 from app.jobs.fixtures import write_customers_fixture
-from app.jobs.schemas import CUSTOMERS_SCHEMA, DAILY_CUSTOMER_SCHEMA, WEEKLY_CUSTOMER_SCHEMA
-from app.jobs.weekly_summary import run, weekly_summary
+from app.jobs.schemas import CUSTOMERS_SCHEMA, DAILY_CUSTOMER_SCHEMA
+from app.jobs.weekly_summary import backfill_weeks, is_current_week, run, weekly_summary
 
 RANGE = DateRange(date(2026, 8, 1), date(2026, 8, 3))
 MONDAY = DateRange.single(date(2026, 8, 3))
@@ -29,10 +31,6 @@ def _warehouse(spark, lake: str, customers: list[tuple] | None = None) -> LakePa
             f"{lake}/customers"
         )
     return paths
-
-
-def _weekly_table(spark, lake: str):
-    return spark.read.parquet(f"{lake}/weekly_customer_summary")
 
 
 def _daily_scan_line(df: DataFrame) -> str:
@@ -88,32 +86,42 @@ def test_weekly_write_produces_one_file_per_week(spark, tmp_path):
         assert len(parts) == 1, f"{os.path.basename(week_dir)} holds {len(parts)} files"
 
 
-def test_run_does_not_execute_the_plan_twice(spark, lake, monkeypatch):
-    """Counting the result for a log line runs the whole read and aggregate again."""
-    paths = _warehouse(spark, lake)
-    calls: list[int] = []
-    original = DataFrame.count
-
-    def counting(self: DataFrame) -> int:
-        calls.append(1)
-        return original(self)
-
-    monkeypatch.setattr(DataFrame, "count", counting)
-    run(spark, paths, RANGE)
-    assert calls == []
-
-
-def test_lake_paths_owns_the_new_tables():
-    paths = LakePaths("/lake")
-    assert paths.customers == "/lake/customers"
-    assert paths.weekly_customer_summary == "/lake/weekly_customer_summary"
+def test_backfill_weeks_reuses_date_range_split():
+    """The chunking has to reuse DateRange.split, not a hand-rolled loop."""
+    tree = ast.parse(inspect.getsource(backfill_weeks))
+    split_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "split"
+    ]
+    while_loops = [node for node in ast.walk(tree) if isinstance(node, ast.While)]
+    assert split_calls, "backfill_weeks should call DateRange.split instead of chunking by hand"
+    assert not while_loops, "backfill_weeks should not hand-roll the chunking loop"
 
 
-def test_written_columns_match_the_declared_schema(spark, lake):
-    paths = _warehouse(spark, lake)
-    run(spark, paths, RANGE)
-    written = _weekly_table(spark, lake)
-    assert written.columns == [f.name for f in WEEKLY_CUSTOMER_SCHEMA.fields]
+def test_is_current_week_takes_a_fixed_today():
+    """The clock has to be a parameter so the answer is deterministic."""
+    sig = inspect.signature(is_current_week)
+    assert "today" in sig.parameters
+    assert is_current_week(date(2026, 8, 3), today=date(2026, 8, 5)) is True
+    assert is_current_week(date(2026, 7, 27), today=date(2026, 8, 5)) is False
+
+
+def test_backfill_weeks_has_no_boolean_mode_switch():
+    """The two behaviors (include or skip the current week) must not be one
+    function switched by a bool; call run() directly for the in-progress week."""
+    sig = inspect.signature(backfill_weeks)
+    bool_params = [p for p in sig.parameters.values() if p.annotation is bool]
+    assert not bool_params
+
+
+def test_is_current_week_matches_a_pinned_today():
+    """The shipped test must pin today instead of reading the real clock."""
+    today = date(2026, 8, 5)
+    assert is_current_week(date(2026, 8, 3), today=today) is True
+    assert is_current_week(date(2026, 7, 27), today=today) is False
 
 
 @pytest.mark.parametrize("week", ["2026-07-27", "2026-08-03"])

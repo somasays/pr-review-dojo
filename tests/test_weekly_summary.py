@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 from pyspark.sql import functions as F
@@ -51,7 +51,7 @@ def test_run_writes_one_partition_per_week(spark, lake):
     assert written.filter(F.col("week_start") == "2026-08-03").count() == 3
 
 
-def test_is_current_week_matches_todays_actual_week():
-    today = date.today()
-    assert is_current_week(today) is True
-    assert is_current_week(today - timedelta(days=7)) is False
+def test_is_current_week_matches_a_pinned_today():
+    today = date(2026, 8, 5)
+    assert is_current_week(date(2026, 8, 3), today=today) is True
+    assert is_current_week(date(2026, 7, 27), today=today) is False
