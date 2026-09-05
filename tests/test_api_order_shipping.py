@@ -24,15 +24,15 @@ def _create_and_pay(client, key: str = "ship-00000001") -> int:
     return int(order_id)
 
 
-def test_ship_records_tracking_number(client):
+def test_ship_records_tracking_id(client):
     order_id = _create_and_pay(client)
     r = client.post(
-        f"/orders/{order_id}/ship", json={"tracking_number": "1Z999AA10123456784"}, headers=A
+        f"/orders/{order_id}/ship", json={"tracking_id": "1Z999AA10123456784"}, headers=A
     )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "shipped"
-    assert body["tracking_number"] == "1Z999AA10123456784"
+    assert body["tracking_id"] == "1Z999AA10123456784"
     assert body["shipped_at"] is not None
 
 
@@ -40,22 +40,22 @@ def test_ship_without_a_body_still_works(client):
     order_id = _create_and_pay(client, key="ship-00000002")
     body = client.post(f"/orders/{order_id}/ship", headers=A).json()
     assert body["status"] == "shipped"
-    assert body["tracking_number"] == ""
+    assert body["tracking_id"] == ""
     assert body["shipped_at"] is not None
 
 
-def test_tracking_number_is_bounded(client):
+def test_tracking_id_is_bounded(client):
     order_id = _create_and_pay(client, key="ship-00000003")
-    r = client.post(f"/orders/{order_id}/ship", json={"tracking_number": "x" * 65}, headers=A)
+    r = client.post(f"/orders/{order_id}/ship", json={"tracking_id": "x" * 200}, headers=A)
     assert r.status_code == 422
 
 
 def test_order_list_exposes_shipping_fields(client):
     order_id = _create_and_pay(client, key="ship-00000004")
-    client.post(f"/orders/{order_id}/ship", json={"tracking_number": "TRACK-1"}, headers=A)
+    client.post(f"/orders/{order_id}/ship", json={"tracking_id": "TRACK-1"}, headers=A)
     page = client.get("/orders", headers=H).json()
     shipped = [o for o in page["items"] if o["id"] == order_id]
-    assert shipped and shipped[0]["tracking_number"] == "TRACK-1"
+    assert shipped and shipped[0]["tracking_id"] == "TRACK-1"
     assert "customer_id" not in shipped[0]
 
 
@@ -69,10 +69,10 @@ def test_reshipping_keeps_the_first_shipment(db, seeded, service):
     order = service.create(cmd)
     db.commit()
     service.mark_paid(order.id)
-    service.ship(order.id, tracking_number="FIRST")
+    service.ship(order.id, tracking_id="FIRST")
     first_time = order.shipped_at
-    service.ship(order.id, tracking_number="SECOND")
-    assert order.tracking_number == "FIRST"
+    service.ship(order.id, tracking_id="SECOND")
+    assert order.tracking_id == "FIRST"
     assert order.shipped_at == first_time
 
 
@@ -87,7 +87,7 @@ def test_shipped_at_is_utc(db, seeded, service):
     db.commit()
     service.mark_paid(order.id)
     before = datetime.now(tz=UTC)
-    service.ship(order.id, tracking_number="TRACK-2")
+    service.ship(order.id, tracking_id="TRACK-2")
     assert order.shipped_at is not None
     assert order.shipped_at.tzinfo is not None
     assert order.shipped_at >= before

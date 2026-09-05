@@ -86,7 +86,7 @@ def ship_order(
 ) -> Order:
     shipment = body or ShipOrderRequest()
     try:
-        return service.ship(order_id, tracking_number=shipment.tracking_number)
+        return service.ship(order_id, tracking_id=shipment.tracking_id)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
     except InvalidTransition as exc:

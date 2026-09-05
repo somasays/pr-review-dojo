@@ -53,7 +53,7 @@ class ShipOrderRequest(BaseModel):
     because a few low value orders ship untracked.
     """
 
-    tracking_number: str = Field(default="", max_length=64)
+    tracking_id: str = Field(default="", max_length=64)
 
 
 class OrderItemOut(BaseModel):
@@ -75,7 +75,7 @@ class OrderOut(BaseModel):
     tax: Decimal
     total: Decimal
     discount_code: str | None
-    tracking_number: str
+    tracking_id: str
     shipped_at: datetime | None
     created_at: datetime
     items: list[OrderItemOut]
