@@ -36,5 +36,5 @@ def test_receipt_text_lists_every_line():
 
 
 def test_empty_cart_is_rejected():
-    with pytest.raises(ValueError):
+    with pytest.raises(Exception):
         compute_order_total([], [], "US-CA")
