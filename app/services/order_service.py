@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -106,19 +107,20 @@ class OrderService:
             self.notifications.order_confirmed(order.customer.email, order.id, str(order.total))
         return order
 
-    def ship(self, order_id: int, tracking_id: str = "") -> Order:
+    def ship(self, order_id: int, tracking_id: str = "", now: datetime | None = None) -> Order:
         """Move a paid order to shipped and record how it left the warehouse.
 
         Shipping an order that is already shipped is a no-op, so a retried
         request never overwrites the tracking id or the shipment time
-        recorded by the request that won.
+        recorded by the request that won. `now` defaults to the current time
+        and exists so tests can pin the shipment timestamp.
         """
         order = self.orders.get(order_id)
         was_paid = order.status == OrderStatus.PAID
         self._move(order, OrderStatus.SHIPPED)
         if was_paid:
             order.tracking_id = tracking_id
-            order.shipped_at = utcnow()
+            order.shipped_at = now or utcnow()
             self.session.flush()
             self.notifications.order_shipped(order.customer.email, order.id)
         return order

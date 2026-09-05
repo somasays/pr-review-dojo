@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime
 
-from app.db.models import Order
+from app.domain.dates import DateRange
 
 
-def transit_days(order: Order, today: date) -> int:
+def transit_days(shipped_at: datetime | None, today: date) -> int:
     """Days between shipment and today, inclusive of both ends."""
-    if order.shipped_at is None:
+    if shipped_at is None or shipped_at.date() > today:
         return 0
-    cur = order.shipped_at.date()
-    days = 0
-    while cur <= today:
-        days += 1
-        cur += timedelta(days=1)
-    return days
+    return DateRange(shipped_at.date(), today).days
