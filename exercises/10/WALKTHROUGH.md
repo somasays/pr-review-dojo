@@ -128,6 +128,64 @@ is a good question. Asserting that it does is a false positive, and in this
 diff it would be the loudest comment on the page while the real table
 rewrite, the backfill four lines below, went unmentioned.
 
+## Design and tests
+
+The follow-up commit adds an admin report on shipment transit time and, on
+the way, replaces `tracking_number` with `tracking_id`. It reads as ordinary
+finishing work, which is exactly why the four findings in it are easy to
+walk past.
+
+**The domain helper imports the ORM (Major).** `app/domain/shipping.py` is a
+new file under `app/domain/`, and the habit that catches this finding is
+checking the imports of any new file in that package before reading its
+body, the same way you would check a function's return type before its
+implementation. Line 7 imports `Order` from `app.db.models`. That single
+import means `transit_days` cannot run, or be tested, without a live
+session, which is the whole reason `app/domain/` exists as a layer: so
+pricing, dates, and now transit time can be reasoned about and tested
+without a database. The fix is one signature change, take `shipped_at`
+directly instead of the row, because the caller already has the field on
+hand.
+
+**`ship()` reads the clock itself (Minor).** You notice this one by asking a
+question you should ask of every function that writes a timestamp: how would
+a test pin this value to something exact? `order.shipped_at = utcnow()`
+answers that question badly. There is no parameter to substitute, so any
+test can only assert a range around "now", never an exact instant, and the
+existing `test_shipped_at_is_utc` does exactly that. Compare it with
+`DateRange.last_n_days`, a few files over, which takes `today` as an
+optional parameter for this exact reason.
+
+**The day count re-implements `DateRange` (Refactor).** Any `while` loop that
+walks dates one day at a time is worth a second look in a codebase that
+already has a `DateRange` type with a `.days` property built for this. The
+loop in `transit_days` is not wrong, it produces the same inclusive count
+`DateRange(start, end).days` would, which is exactly what makes this a
+refactor and not a defect: nothing breaks today, but the next person to read
+the file has to convince themselves the hand-rolled loop agrees with
+`DateRange`'s definition of "inclusive" instead of trusting a name they
+already know.
+
+**The boundary test skips the boundary (Major).** `ShipOrderRequest` caps
+`tracking_id` at 64 characters. The habit that catches this is finding the
+threshold in the schema first, then checking whether the matching test uses
+a value near it. `test_tracking_id_is_bounded` sends 200 characters, which
+proves the field rejects something absurdly long but says nothing about
+whether 64 is accepted and 65 is not. An off-by-one in the limit would pass
+this test either way.
+
+Two questions an interviewer might ask about these:
+
+1. The domain layer rule says nothing under `app/domain/` may import
+   `app.db`, `app.services`, or `app.api`. Why does that rule exist for a
+   read-only helper like `transit_days`, which never writes anything? What
+   would go wrong in a year if this import were left in place?
+2. `test_tracking_id_is_bounded` passes both before and after the fix,
+   because there is no actual bug in the 64 character limit. Given that,
+   what is the argument for spending review time on a test that already
+   passes, and what would change your answer if this were a payment amount
+   instead of a tracking id?
+
 ## Questions to ask the author
 
 - What is the rollback plan for this revision? The answer tells you whether
