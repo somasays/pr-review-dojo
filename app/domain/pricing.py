@@ -199,14 +199,12 @@ def is_holiday_bonus_window(today: date | None = None) -> bool:
     return today.month in (11, 12)
 
 
-def volume_discount_for_season(subtotal: Money, quantity: int, holiday: bool = False) -> Money:
-    """Volume discount, boosted by 2 percent when `holiday` is set.
-
-    Pass `holiday_bonus_active()` at the call site once the storefront wires
-    up the seasonal promotion.
-    """
+def volume_discount_with_holiday_bonus(
+    subtotal: Money, quantity: int, today: date | None = None
+) -> Money:
+    """Volume discount, boosted by 2 percent during the holiday bonus window."""
     off = volume_discount(subtotal, quantity)
-    if holiday:
+    if is_holiday_bonus_window(today):
         off = off + subtotal.percent_down(Decimal("2"))
     if subtotal < off:
         return subtotal
