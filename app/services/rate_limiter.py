@@ -36,20 +36,21 @@ class RateLimiter:
         self._lock = threading.Lock()
         self._hits: dict[str, int] = {}
         self._window_start: dict[str, float] = {}
-        self._stopped = False
+        self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def hit(self, key: str) -> Decision:
         """Record one request for `key` and say whether it is allowed."""
         now = time.monotonic()
-        start = self._window_start.get(key)
-        if start is None or now - start >= self.policy.window_seconds:
-            start = now
-            self._window_start[key] = now
-            self._hits[key] = 0
-        # A dict item write is atomic, no lock needed.
-        self._hits[key] = self._hits.get(key, 0) + 1
-        used = self._hits[key]
+        with self._lock:
+            start = self._window_start.get(key)
+            if start is None or now - start >= self.policy.window_seconds:
+                start = now
+                self._window_start[key] = now
+                self._hits[key] = 0
+            # A dict item write is atomic, no lock needed.
+            used = self._hits.get(key, 0) + 1
+            self._hits[key] = used
         elapsed = now - start
         return Decision(
             allowed=used <= self.policy.limit,
@@ -85,15 +86,13 @@ class RateLimiter:
         self._thread.start()
 
     def stop(self) -> None:
-        self._stopped = True
+        self._stop.set()
 
     def _run(self) -> None:
-        while not self._stopped:
-            time.sleep(self.policy.window_seconds)
+        while not self._stop.wait(self.policy.window_seconds):
             self.sweep()
 
 
-def seconds_until_reset(window_start: float, window_seconds: int) -> int:
+def seconds_until_reset(window_start: float, window_seconds: int, now: float) -> int:
     """How long until the window that started at `window_start` rolls over."""
-    elapsed = time.monotonic() - window_start
-    return max(int(window_seconds - elapsed), 0)
+    return max(int(window_seconds - (now - window_start)), 0)

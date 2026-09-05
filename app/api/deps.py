@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import lru_cache
@@ -107,6 +108,7 @@ def get_order_service(db: DbSession, settings: AppSettings) -> OrderService:
 Orders = Annotated[OrderService, Depends(get_order_service)]
 
 _rate_limiter: RateLimiter | None = None
+_rate_limiter_lock = threading.Lock()
 
 
 @lru_cache(maxsize=1)
@@ -121,9 +123,11 @@ def rate_limit_policy() -> RateLimitPolicy:
 def get_rate_limiter() -> RateLimiter:
     """Build the limiter on first use so importing the app spawns no threads."""
     global _rate_limiter
-    if _rate_limiter is None:
-        _rate_limiter = RateLimiter(rate_limit_policy())
-        _rate_limiter.start()
+    with _rate_limiter_lock:
+        if _rate_limiter is None:
+            limiter = RateLimiter(rate_limit_policy())
+            limiter.start()
+            _rate_limiter = limiter
     return _rate_limiter
 
 
