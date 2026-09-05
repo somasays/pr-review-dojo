@@ -1,9 +1,10 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from chispa import assert_df_equality
 
 from app.jobs.daily_enrichment import enrich, main
-from app.jobs.schemas import CUSTOMER_ENRICHMENT_SCHEMA
+from app.jobs.schemas import CUSTOMER_ENRICHMENT_SCHEMA, ORDERS_SCHEMA
 
 
 def test_enrich_metrics_for_one_day(spark, lake):
@@ -17,6 +18,19 @@ def test_enrich_metrics_for_one_day(spark, lake):
         CUSTOMER_ENRICHMENT_SCHEMA,
     )
     assert_df_equality(actual, expected, ignore_nullable=True)
+
+
+def test_large_order_flag(spark, tmp_path):
+    root = str(tmp_path / "lake")
+    rows = [
+        (1, 1, "paid", "USD", Decimal("49.00"), datetime(2026, 8, 1, 9, tzinfo=UTC), "2026-08-01"),
+        (2, 1, "paid", "USD", Decimal("51.00"), datetime(2026, 8, 1, 10, tzinfo=UTC), "2026-08-01"),
+    ]
+    spark.createDataFrame(rows, ORDERS_SCHEMA).write.mode("overwrite").partitionBy("dt").parquet(
+        f"{root}/orders"
+    )
+    actual = enrich(spark, root, "2026-08-01", "2026-08-01", dry_run=True).collect()[0]
+    assert actual.large_order_count == 1
 
 
 def test_main_writes_only_the_requested_partitions(spark, lake):
