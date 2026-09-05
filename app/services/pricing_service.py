@@ -116,3 +116,11 @@ class PricingService:
         lines = self.build_lines(items, products, currency)
         discounts = self.resolve_discounts(codes, currency)
         return quote(lines, discounts, region)
+
+    def refund_by_line(self, lines: list[Line], refund: Money) -> list[Money]:
+        """Split a refund across lines in proportion to their subtotal."""
+        weights = [int(ln.subtotal.amount * 100) for ln in lines]
+        cents = int(refund.amount * 100)
+        shares = [cents * w // sum(weights) for w in weights]
+        rem = cents - sum(shares)
+        return [Money(Decimal(s + (i < rem)) / 100, refund.currency) for i, s in enumerate(shares)]

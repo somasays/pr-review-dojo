@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.db.models import Product
 from app.domain.exchange import ExchangeRate, RateTable, UnknownRate
 from app.domain.money import Money
 
@@ -45,3 +46,12 @@ def test_currencies_lists_both_sides():
 
 def test_round_down_drops_minor_units():
     assert Money.of("1234.99", "EUR").round_down() == Money.of("1234.00", "EUR")
+
+
+def test_new_conversion_helpers():
+    assert TABLE.is_stale("USD", "EUR")
+    assert not TABLE.is_stale("USD", "JPY")
+    product = Product(sku="WIDGET", name="Widget", unit_price=Decimal("10.00"), currency="USD")
+    assert TABLE.convert_product(product, "EUR") == Money.of("9.20", "EUR")
+    note = TABLE.rate_note("USD", "EUR", Decimal("0.92"), AS_OF, Decimal("10.00"))
+    assert note == "10.00 USD at 0.92 USD/EUR (published 2026-08-01)"

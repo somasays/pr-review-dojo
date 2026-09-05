@@ -9,14 +9,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
+from app.db.models import Product
+from app.domain.dates import utcnow
 from app.domain.money import Money
 
-__all__ = ["ROUND_HALF_EVEN", "ExchangeRate", "RateTable", "UnknownRate"]
+__all__ = ["ExchangeRate", "RateTable", "UnknownRate"]
 
 # The provider sends six decimal places and we keep all of them.
-# TODO: finance wants ROUND_HALF_EVEN here to match their ledger, confirm first.
 RATE_SCALE = Decimal("0.000001")
 
 
@@ -81,3 +82,16 @@ class RateTable:
             out.add(published.base)
             out.add(published.quote)
         return out
+
+    def is_stale(self, base: str, quote: str, max_age_days: int = 1) -> bool:
+        """True when the published rate for this pair is older than `max_age_days`."""
+        match = next((p for p in self.rates if p.base == base and p.quote == quote), None)
+        return match is not None and (utcnow().date() - match.as_of).days > max_age_days
+
+    def convert_product(self, product: Product, to_currency: str) -> Money:
+        """Convert a catalog product's price into the quote currency."""
+        return self.convert(Money(product.unit_price, product.currency), to_currency)
+
+    def rate_note(self, base: str, quote: str, rate: Decimal, as_of: date, amount: Decimal) -> str:
+        """Render the note that explains which rate priced a converted amount."""
+        return f"{amount} {base} at {rate} {base}/{quote} (published {as_of.isoformat()})"
