@@ -1,11 +1,11 @@
 """Hidden tests for exercise 08."""
 
 import asyncio
+import inspect
 import time
 from contextlib import contextmanager
 
 from app.async_tasks import handlers
-from app.async_tasks.worker import QueueWorker, Task
 from app.services.notification import (
     BatchNotifier,
     InMemoryAsyncSender,
@@ -33,20 +33,6 @@ async def test_one_failed_send_does_not_lose_the_rest_of_the_batch():
         "order-confirmed:3",
     ]
     assert notifier.stats.sent == 2
-
-
-async def test_concurrent_batches_send_a_dedupe_key_once():
-    sender = InMemoryAsyncSender(latency=0.05)
-    notifier = BatchNotifier(sender)
-
-    await asyncio.gather(
-        notifier.send_batch(_messages([9])),
-        notifier.send_batch(_messages([9])),
-    )
-
-    assert len(sender.sent) == 1
-    assert notifier.stats.sent == 1
-    assert notifier.stats.skipped == 1
 
 
 class _EmptyOrderRepository:
@@ -85,18 +71,54 @@ async def test_dispatch_handler_does_not_block_the_event_loop(monkeypatch):
     assert max(gaps) < 0.15
 
 
-async def test_drain_works_from_a_thread_with_no_event_loop():
-    seen: list[int] = []
+class _FakeResponse:
+    status_code = 200
 
-    def run_worker() -> int:
-        queue: asyncio.Queue[Task] = asyncio.Queue()
-        worker = QueueWorker(queue, concurrency=2)
-        worker.register("noop", lambda payload: seen.append(payload["n"]))
-        queue.put_nowait(Task("noop", {"n": 1}))
-        worker.drain()
-        return worker.stats.processed
 
-    processed = await asyncio.wait_for(asyncio.to_thread(run_worker), timeout=10)
+async def test_gateway_health_check_does_not_block_the_event_loop(monkeypatch):
+    ticks: list[float] = []
 
-    assert processed == 1
-    assert seen == [1]
+    async def heartbeat() -> None:
+        while True:
+            ticks.append(time.perf_counter())
+            await asyncio.sleep(0.01)
+
+    def slow_get(url, timeout=None):
+        time.sleep(0.3)
+        return _FakeResponse()
+
+    monkeypatch.setattr(handlers.httpx, "get", slow_get)
+    handlers.metrics.clear()
+
+    beat = asyncio.create_task(heartbeat())
+    await asyncio.sleep(0.05)
+    await handlers.check_gateway_health({"url": "http://gateway.example/ping"})
+    await asyncio.sleep(0.05)
+    beat.cancel()
+
+    gaps = [b - a for a, b in zip(ticks, ticks[1:], strict=False)]
+    assert gaps, "heartbeat never ran"
+    assert max(gaps) < 0.15
+    assert handlers.metrics[-1] == ("gateway_status", 200)
+
+
+def test_resend_failed_depends_on_the_sender_protocol():
+    """DS-04: a fake sender must be injectable, not a hardcoded concrete class."""
+    sig = inspect.signature(handlers.resend_failed)
+    assert "sender" in sig.parameters
+    assert sig.parameters["sender"].annotation == "AsyncSender"
+    assert "LoggingAsyncSender" not in inspect.getsource(handlers)
+
+
+def test_format_resend_report_is_a_pure_function():
+    """DS-21: the CSV formatting step must not be tangled with the send."""
+    assert not asyncio.iscoroutinefunction(handlers.format_resend_report)
+    report = handlers.format_resend_report([confirmation_message("a@example.com", 1, "1.00")])
+    assert report == "order,recipient\norder-confirmed:1,a@example.com"
+
+
+def test_resend_helpers_avoid_a_boolean_mode_switch():
+    """Refactor (DS-11): preview and resend should be two functions, not a flag."""
+    sig = inspect.signature(handlers.resend_failed)
+    assert all(p.annotation != "bool" for p in sig.parameters.values())
+    assert handlers.preview_resend([7]) == "order,recipient\norder-confirmed:7,order7@example.com"

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 import httpx
@@ -19,8 +20,8 @@ from app.db.repositories import OrderRepository
 from app.db.session import session_scope
 from app.domain.order_state import OrderStatus
 from app.services.notification import (
+    AsyncSender,
     BatchNotifier,
-    LoggingAsyncSender,
     Message,
     confirmation_message,
 )
@@ -68,28 +69,32 @@ def record_metric(payload: dict[str, Any]) -> None:
 
 async def check_gateway_health(payload: dict[str, Any]) -> None:
     """Ping the notification gateway before a dispatch run starts."""
-    response = httpx.get(str(payload["url"]), timeout=2.0)
+    response = await asyncio.to_thread(httpx.get, str(payload["url"]), timeout=2.0)
     metrics.append(("gateway_status", response.status_code))
 
 
-async def resend_failed(order_ids: list[int], *, dry_run: bool = False) -> str:
-    """Resend confirmations for orders whose batch send did not go out.
+def _resend_messages(order_ids: list[int]) -> list[Message]:
+    return [confirmation_message(f"order{oid}@example.com", oid, "0.00") for oid in order_ids]
 
-    With dry_run, lists what would be sent without contacting the gateway.
-    Returns a small CSV report either way.
-    """
-    messages = [confirmation_message(f"order{oid}@example.com", oid, "0.00") for oid in order_ids]
+
+def format_resend_report(messages: Sequence[Message]) -> str:
+    """Pure formatting step: one CSV line per message, in order."""
     lines = ["order,recipient"]
-    if dry_run:
-        for message in messages:
-            lines.append(f"{message.dedupe_key},{message.to}")
-        return "\n".join(lines)
-    notifier = BatchNotifier(LoggingAsyncSender())
-    results = await notifier.send_batch(messages)
-    for message in results:
-        if isinstance(message, Message):
-            lines.append(f"{message.dedupe_key},{message.to}")
+    lines.extend(f"{m.dedupe_key},{m.to}" for m in messages)
     return "\n".join(lines)
+
+
+def preview_resend(order_ids: list[int]) -> str:
+    """List what a resend would send, without contacting the gateway."""
+    return format_resend_report(_resend_messages(order_ids))
+
+
+async def resend_failed(order_ids: list[int], sender: AsyncSender) -> str:
+    """Resend confirmations for orders whose batch send did not go out."""
+    notifier = BatchNotifier(sender)
+    results = await notifier.send_batch(_resend_messages(order_ids))
+    sent = [message for message in results if isinstance(message, Message)]
+    return format_resend_report(sent)
 
 
 def register_handlers(worker: QueueWorker, notifier: BatchNotifier) -> None:
