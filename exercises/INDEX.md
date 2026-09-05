@@ -28,3 +28,4 @@
 | 24 | test | concurrency | medium | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/59) | - | | |
 | 28 | test | migrations | hard | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/58) | - | | |
 | 27 | test | async | hard | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/62) | - | | |
+| 26 | test | spark_batch | hard | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/63) | - | | |
