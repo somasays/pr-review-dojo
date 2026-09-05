@@ -215,9 +215,4 @@ def volume_receipt_shares(lines: list[Line], volume_off: Money) -> list[Money]:
     """Split the volume discount evenly across lines for the receipt."""
     if not lines:
         return []
-    cents = int(volume_off.amount * 100)
-    base, rem = divmod(cents, len(lines))
-    return [
-        Money(Decimal(base + (1 if i < rem else 0)) / 100, volume_off.currency)
-        for i in range(len(lines))
-    ]
+    return volume_off.allocate(len(lines))
