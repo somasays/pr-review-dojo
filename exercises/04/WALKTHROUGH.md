@@ -159,6 +159,55 @@ technique instead of the mistake, and "rewrite this as `select()`, raw SQL
 is banned" costs five points as a false positive. Asking whether the count
 deserves its own raw statement is free.
 
+## Design and tests
+
+The defects above are the ones that break something. These four do not,
+and a strong reviewer still leaves them, because each one costs the next
+person who touches this file real time.
+
+### The router builds its own query
+
+`set_default_address` opens with a manual existence check: it imports
+`select`, queries `Customer.id` directly, and raises 404 by hand. The habit
+that catches this: whenever a router file imports anything from
+`sqlalchemy`, ask what `CustomerRepository` already offers for the same
+job. Here the answer is `repo.get(customer_id)`, which already raises
+`NotFound` and is already wired to a 404 handler. Once you notice the
+import, the fix is a one-line substitution, but the interesting part is
+noticing it at all: nothing about a manual `select()` looks wrong in
+isolation, it only looks wrong next to the method sitting one file away
+that does the same thing.
+
+### A name that promises a read but performs a write
+
+`get_default_address` reads like an accessor. The body inserts a new
+`CustomerAddress` row and flips `is_default` on a different row entirely.
+The habit: for every `get_`, `is_`, or `has_` name in a diff, check the
+last line of the body. If it calls `.add(`, `.flush()`, or mutates an
+attribute on something other than the return value, the name is lying.
+Here the giveaway is that the method takes an `address` argument to
+insert, which no getter should ever need.
+
+### The same predicate, built twice
+
+`search` and `search_count` both decide whether an empty `regions` list
+means "no filter," once through an ORM `.where()` and once by hand-writing
+SQL. The habit: when two methods in the same file compute the same
+condition, check whether they agree today and ask what happens when one of
+them changes. This file already answers the second question for you, the
+two methods disagreed on this exact rule before this PR was written. That
+history is the argument for a shared private helper, not "duplication is
+always bad."
+
+### The test that never asks the hard question
+
+The endpoint's docstring promises that no `region` filter means every
+region. None of the seven shipped tests call `search` or `search_count`
+with an empty list. The habit: read a docstring's claims as a checklist,
+then find the test for each line of it. A claim with no matching test is
+not proof the behavior is wrong, but it is proof nobody has checked, which
+is exactly the gap a later refactor will fall into.
+
 ## Questions to ask the author
 
 1. What does the console send when no region is checked, and what does the
@@ -185,3 +234,9 @@ walks the author into a defect without naming it.
    what would you measure to know you had reached it?
 5. The empty-region guard now lives in the repository. Argue for putting it
    in the router instead, then say why you did not.
+6. The rewrite renamed `get_default_address` to `set_default_address` and
+   changed nothing else about it. Was that worth its own commit, and what
+   would you say to a reviewer who called it noise?
+7. `search_count` now derives its count from the same statement as `search`
+   instead of a separate raw SQL string. What did that change cost in terms
+   of index usage or query plan, and how would you check?
