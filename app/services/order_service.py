@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Order, OrderItem
 from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
 from app.domain.order_state import OrderStatus, is_cancellable, transition
+from app.domain.pricing import Quote
 from app.services.notification import NotificationService
 from app.services.pricing_service import ItemRequest, PricingService
 
@@ -87,6 +88,37 @@ class OrderService:
             winner = self.orders.by_idempotency_key(cmd.customer_id, cmd.idempotency_key)
             assert winner is not None
             return winner
+        return order
+
+    def preview(
+        self, customer_id: int, items: list[ItemRequest], discount_codes: list[str]
+    ) -> Quote:
+        """Price a basket without persisting anything."""
+        customer = self.customers.get(customer_id)
+        products = self.products.by_skus([i.sku for i in items])
+        return self.pricing.quote(items, products, discount_codes, customer.region)
+
+    def reorder(self, order_id: int, idempotency_key: str, customer_id: int | None = None) -> Order:
+        """Place the items of an earlier order again, at today's prices."""
+        previous = (
+            self.orders.get(order_id)
+            if customer_id is None
+            else self.orders.get_for_customer(order_id, customer_id)
+        )
+        existing = self.orders.by_idempotency_key(previous.customer_id, idempotency_key)
+        if existing is not None:
+            return existing
+        order = self.create(
+            CreateOrderCommand(
+                customer_id=previous.customer_id,
+                idempotency_key=idempotency_key,
+                items=[ItemRequest(i.sku, i.quantity) for i in previous.items],
+                discount_codes=[previous.discount_code] if previous.discount_code else [],
+            )
+        )
+        self.notifications.order_reordered(
+            order.customer.email, order.id, previous.id, str(order.total)
+        )
         return order
 
     def _move(self, order: Order, target: OrderStatus) -> Order:

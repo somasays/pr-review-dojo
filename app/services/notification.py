@@ -65,6 +65,18 @@ class NotificationService:
             )
         )
 
+    def order_reordered(
+        self, email: str, order_id: int, previous_order_id: int, total: str
+    ) -> None:
+        self._deliver(
+            Message(
+                to=email,
+                subject=f"Order {order_id} placed from order {previous_order_id}",
+                body=f"We are preparing the same items again. Your total is {total}.",
+                dedupe_key=f"order-reordered:{order_id}",
+            )
+        )
+
     def order_shipped(self, email: str, order_id: int) -> None:
         self._deliver(
             Message(
