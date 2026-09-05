@@ -7,29 +7,11 @@ adapts ORM rows into these types.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import ROUND_HALF_EVEN, Decimal
+from datetime import date
+from decimal import Decimal
 from enum import StrEnum
 
 from app.domain.money import Money, sum_money
-
-# TODO: finance has not signed off on the rounding for tier amounts yet, we
-# floor them today and may move to ROUND_HALF_EVEN later.
-__all__ = [
-    "ROUND_HALF_EVEN",
-    "TAX_RATES",
-    "VOLUME_TIERS",
-    "Discount",
-    "DiscountKind",
-    "Line",
-    "Quote",
-    "VolumeTier",
-    "best_discount",
-    "quote",
-    "tax_rate_for",
-    "tier_for",
-    "unit_price_after_discount",
-    "volume_discount",
-]
 
 
 class DiscountKind(StrEnum):
@@ -215,3 +197,34 @@ def unit_price_after_discount(line: Line, discount: Money) -> Money:
         return line.unit_price - discount
     per_unit = discount.allocate(line.quantity)
     return line.unit_price - per_unit[0]
+
+
+def holiday_bonus_active() -> bool:
+    """True during the November and December volume-tier bonus window."""
+    return date.today().month in (11, 12)
+
+
+def volume_discount_for_season(subtotal: Money, quantity: int, holiday: bool = False) -> Money:
+    """Volume discount, boosted by 2 percent when `holiday` is set.
+
+    Pass `holiday_bonus_active()` at the call site once the storefront wires
+    up the seasonal promotion.
+    """
+    off = volume_discount(subtotal, quantity)
+    if holiday:
+        off = off + subtotal.percent_down(Decimal("2"))
+    if subtotal < off:
+        return subtotal
+    return off
+
+
+def volume_receipt_shares(lines: list[Line], volume_off: Money) -> list[Money]:
+    """Split the volume discount evenly across lines for the receipt."""
+    if not lines:
+        return []
+    cents = int(volume_off.amount * 100)
+    base, rem = divmod(cents, len(lines))
+    return [
+        Money(Decimal(base + (1 if i < rem else 0)) / 100, volume_off.currency)
+        for i in range(len(lines))
+    ]
