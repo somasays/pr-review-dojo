@@ -30,6 +30,11 @@ The streaming job reads newline-delimited JSON events from a directory (a
 stand-in for the Kafka topic) and writes `orders_latest`, keyed by `order_id`.
 Every `foreachBatch` write is a full merge, so replaying a batch is safe.
 
+A second query on the same source keeps `paid_order_counts`, one row per
+`customer_id` with the number of orders that have reached `paid`. It is not
+partitioned by `dt`: the count is a running total, not a daily slice. A third
+query keeps `customer_running_totals`, the lifetime paid amount per customer.
+
 ## Conventions
 
 These are the rules of this codebase. Exercise PRs will break them.
@@ -67,6 +72,9 @@ uv run ruff check . && uv run mypy
 uv run alembic upgrade head
 uv run uvicorn app.api.main:app --reload
 uv run python -m app.jobs.daily_orders --root ./data --start 2026-08-01 --end 2026-08-01
+uv run python -m app.jobs.order_events_stream --source ./events --target ./data/orders_latest \
+  --checkpoint ./ck/upsert --counts-target ./data/paid_order_counts \
+  --counts-checkpoint ./ck/paid_counts --once
 ```
 
 Spark needs a JDK 17 on `JAVA_HOME`. On macOS with Homebrew, `conftest.py`
