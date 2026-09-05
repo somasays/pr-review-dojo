@@ -46,6 +46,20 @@ class OrderCreate(BaseModel):
         return items
 
 
+class HoldCreate(BaseModel):
+    sku: str = Field(min_length=1, max_length=64)
+    quantity: int = Field(gt=0, le=1000)
+
+
+class HoldOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    token: str
+    sku: str
+    quantity: int
+    expires_at: datetime
+
+
 class OrderItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

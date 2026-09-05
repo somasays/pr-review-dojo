@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Query, status
@@ -17,6 +19,7 @@ from app.services.config import Settings, get_settings
 from app.services.notification import InMemorySender, NotificationService
 from app.services.order_service import OrderService
 from app.services.pricing_service import PricingService
+from app.services.reservations import ReservationCache
 
 
 def get_db() -> Iterator[Session]:
@@ -97,9 +100,33 @@ PageParams = Annotated[Pagination, Depends(get_pagination)]
 # Process-wide sender so local runs can inspect what would have been emailed.
 _sender = InMemorySender()
 
+# One reservation cache per process: the holds it tracks are shared by every
+# request thread and by the sweep thread.
+_reservation_cache: ReservationCache | None = None
+_reservation_cache_lock = threading.Lock()
+
+
+def get_reservation_cache() -> ReservationCache:
+    global _reservation_cache
+    if _reservation_cache is None:
+        with _reservation_cache_lock:
+            if _reservation_cache is None:
+                snapshot = get_settings().reservation_snapshot
+                _reservation_cache = ReservationCache(Path(snapshot) if snapshot else None)
+        _reservation_cache.load()
+    return _reservation_cache
+
+
+Reservations = Annotated[ReservationCache, Depends(get_reservation_cache)]
+
 
 def get_order_service(db: DbSession, settings: AppSettings) -> OrderService:
-    return OrderService(db, PricingService(), NotificationService(_sender, settings))
+    return OrderService(
+        db,
+        PricingService(),
+        NotificationService(_sender, settings),
+        get_reservation_cache(),
+    )
 
 
 Orders = Annotated[OrderService, Depends(get_order_service)]
