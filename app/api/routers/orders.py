@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
+from sqlalchemy.orm import Session
 
-from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams
+from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams, Principal
 from app.api.schemas import OrderCreate, OrderNoteIn, OrderOut, Page
 from app.db.models import Order
 from app.db.repositories import NotFound, OrderRepository
@@ -42,13 +43,17 @@ def list_orders(db: DbSession, principal: CurrentPrincipal, page: PageParams) ->
     return {"items": rows, "limit": page.limit, "offset": page.offset}
 
 
+def _scope_order(db: Session, order_id: int, principal: Principal) -> Order:
+    repo = OrderRepository(db)
+    if principal.is_admin:
+        return repo.get(order_id)
+    return repo.get_for_customer(order_id, principal.customer)
+
+
 @router.get("/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db: DbSession, principal: CurrentPrincipal) -> Order:
-    repo = OrderRepository(db)
     try:
-        if principal.is_admin:
-            return repo.get(order_id)
-        return repo.get_for_customer(order_id, principal.customer)
+        return _scope_order(db, order_id, principal)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
 
@@ -62,10 +67,7 @@ def add_order_note(
     Returns the order with the new note attached.
     """
     try:
-        if principal.is_admin:
-            OrderRepository(db).get(order_id)
-        else:
-            OrderRepository(db).get_for_customer(order_id, principal.customer)
+        _scope_order(db, order_id, principal)
         author = "admin" if principal.is_admin else f"customer:{principal.customer}"
         return service.add_note(order_id, note.body, author)
     except NotFound as exc:
