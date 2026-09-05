@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 import httpx
@@ -72,6 +73,13 @@ async def check_gateway_health(payload: dict[str, Any]) -> None:
     metrics.append(("gateway_status", response.status_code))
 
 
+def format_resend_report(messages: Sequence[Message]) -> str:
+    """Pure formatting step: one CSV line per message, in order."""
+    lines = ["order,recipient"]
+    lines.extend(f"{m.dedupe_key},{m.to}" for m in messages)
+    return "\n".join(lines)
+
+
 async def resend_failed(order_ids: list[int], sender: AsyncSender, *, dry_run: bool = False) -> str:
     """Resend confirmations for orders whose batch send did not go out.
 
@@ -79,17 +87,12 @@ async def resend_failed(order_ids: list[int], sender: AsyncSender, *, dry_run: b
     Returns a small CSV report either way.
     """
     messages = [confirmation_message(f"order{oid}@example.com", oid, "0.00") for oid in order_ids]
-    lines = ["order,recipient"]
     if dry_run:
-        for message in messages:
-            lines.append(f"{message.dedupe_key},{message.to}")
-        return "\n".join(lines)
+        return format_resend_report(messages)
     notifier = BatchNotifier(sender)
     results = await notifier.send_batch(messages)
-    for message in results:
-        if isinstance(message, Message):
-            lines.append(f"{message.dedupe_key},{message.to}")
-    return "\n".join(lines)
+    sent = [message for message in results if isinstance(message, Message)]
+    return format_resend_report(sent)
 
 
 def register_handlers(worker: QueueWorker, notifier: BatchNotifier) -> None:
