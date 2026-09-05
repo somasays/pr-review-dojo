@@ -12,7 +12,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Customer, Order, OrderItem, Product
+from app.db.models import Customer, Order, OrderEvent, OrderItem, Product
 from app.domain.order_state import OrderStatus
 
 
@@ -126,3 +126,18 @@ class OrderRepository:
     def count_by_status(self) -> dict[str, int]:
         stmt = select(Order.status, func.count(Order.id)).group_by(Order.status)
         return {status: count for status, count in self.session.execute(stmt).all()}
+
+
+class OrderEventRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add(self, event: OrderEvent) -> OrderEvent:
+        self.session.add(event)
+        self.session.flush()
+        return event
+
+    def list_for_order(self, order_id: int, limit: int = 100) -> Sequence[OrderEvent]:
+        stmt = select(OrderEvent).where(OrderEvent.order_id == order_id)
+        stmt = stmt.order_by(OrderEvent.occurred_at, OrderEvent.id).limit(limit)
+        return self.session.scalars(stmt).all()

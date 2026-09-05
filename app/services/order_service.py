@@ -9,12 +9,18 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import Order, OrderItem
-from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
+from app.db.models import Order, OrderEvent, OrderItem
+from app.db.repositories import (
+    CustomerRepository,
+    OrderEventRepository,
+    OrderRepository,
+    ProductRepository,
+)
 from app.domain.order_state import OrderStatus, is_cancellable, transition
 from app.services.notification import NotificationService
 from app.services.pricing_service import ItemRequest, PricingService
@@ -39,6 +45,7 @@ class OrderService:
     ) -> None:
         self.session = session
         self.orders = OrderRepository(session)
+        self.events = OrderEventRepository(session)
         self.customers = CustomerRepository(session)
         self.products = ProductRepository(session)
         self.pricing = pricing
@@ -89,13 +96,33 @@ class OrderService:
             return winner
         return order
 
+    def _record_event(
+        self, order: Order, previous: OrderStatus | None, target: OrderStatus
+    ) -> OrderEvent:
+        occurred_at = datetime.now(UTC)
+        event = self.events.add(
+            OrderEvent(
+                order_id=order.id,
+                from_status=previous.value if previous is not None else None,
+                to_status=target,
+                actor="service",
+                occurred_at=occurred_at,
+            )
+        )
+        order.last_event_at = occurred_at
+        return event
+
     def _move(self, order: Order, target: OrderStatus) -> Order:
         current = OrderStatus(order.status)
         if current is target:
             return order
         order.status = transition(current, target)
+        self._record_event(order, current, target)
         self.session.flush()
         return order
+
+    def history(self, order_id: int) -> list[OrderEvent]:
+        return list(self.events.list_for_order(order_id))
 
     def mark_paid(self, order_id: int) -> Order:
         order = self.orders.get(order_id)
