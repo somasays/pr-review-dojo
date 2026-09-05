@@ -37,6 +37,19 @@ async def test_second_batch_skips_keys_already_sent():
     assert notifier.stats.skipped == 1
 
 
+async def test_one_bad_send_does_not_lose_the_rest_of_the_batch():
+    sender = InMemoryAsyncSender(fail_keys={"order-confirmed:2"})
+    notifier = BatchNotifier(sender)
+    results = await notifier.send_batch(_messages([1, 2, 3]))
+    assert len(results) == 3
+    assert isinstance(results[1], BaseException)
+    assert sorted(m.dedupe_key for m in sender.sent) == [
+        "order-confirmed:1",
+        "order-confirmed:3",
+    ]
+    assert notifier.stats.sent == 2
+
+
 async def test_metric_handler_runs_through_the_worker():
     metrics.clear()
     q: asyncio.Queue[Task] = asyncio.Queue()
