@@ -73,6 +73,10 @@ async def check_gateway_health(payload: dict[str, Any]) -> None:
     metrics.append(("gateway_status", response.status_code))
 
 
+def _resend_messages(order_ids: list[int]) -> list[Message]:
+    return [confirmation_message(f"order{oid}@example.com", oid, "0.00") for oid in order_ids]
+
+
 def format_resend_report(messages: Sequence[Message]) -> str:
     """Pure formatting step: one CSV line per message, in order."""
     lines = ["order,recipient"]
@@ -80,17 +84,15 @@ def format_resend_report(messages: Sequence[Message]) -> str:
     return "\n".join(lines)
 
 
-async def resend_failed(order_ids: list[int], sender: AsyncSender, *, dry_run: bool = False) -> str:
-    """Resend confirmations for orders whose batch send did not go out.
+def preview_resend(order_ids: list[int]) -> str:
+    """List what a resend would send, without contacting the gateway."""
+    return format_resend_report(_resend_messages(order_ids))
 
-    With dry_run, lists what would be sent without contacting the gateway.
-    Returns a small CSV report either way.
-    """
-    messages = [confirmation_message(f"order{oid}@example.com", oid, "0.00") for oid in order_ids]
-    if dry_run:
-        return format_resend_report(messages)
+
+async def resend_failed(order_ids: list[int], sender: AsyncSender) -> str:
+    """Resend confirmations for orders whose batch send did not go out."""
     notifier = BatchNotifier(sender)
-    results = await notifier.send_batch(messages)
+    results = await notifier.send_batch(_resend_messages(order_ids))
     sent = [message for message in results if isinstance(message, Message)]
     return format_resend_report(sent)
 
