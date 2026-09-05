@@ -13,9 +13,11 @@ import csv
 import logging
 import os
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 
 from app.domain.dates import DateRange, parse_dt
 from app.jobs.schemas import CUSTOMERS_SCHEMA, ORDERS_SCHEMA
@@ -25,6 +27,9 @@ log = logging.getLogger(__name__)
 
 # Finance reports on the Pacific business day.
 BUSINESS_TZ = "America/Los_Angeles"
+
+# Default window for a backfill run when --start/--end are not given.
+DEFAULT_BACKFILL_DAYS = 30
 
 
 @dataclass(frozen=True)
@@ -51,6 +56,9 @@ def read_orders(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataF
         spark.read.schema(ORDERS_SCHEMA)
         .option("basePath", paths.orders)
         .parquet(paths.orders)
+        # A backfill re-reads this table once per chunk; cache it so a retry
+        # does not rescan the source files.
+        .cache()
         .filter(F.col("dt").isin(keys))
     )
 
@@ -58,7 +66,10 @@ def read_orders(spark: SparkSession, paths: LakePaths, days: DateRange) -> DataF
 def read_customers(spark: SparkSession, paths: LakePaths) -> DataFrame:
     """Customers dimension, replicated once per salt bucket for the skewed join."""
     customers = spark.read.schema(CUSTOMERS_SCHEMA).parquet(f"{paths.root}/customers")
-    return customers.select(
+    # The dimension keeps one row per (customer_id, effective_date); keep the current one.
+    latest = Window.partitionBy("customer_id").orderBy(F.col("effective_date").desc())
+    current = customers.withColumn("rn", F.row_number().over(latest)).filter(F.col("rn") == 1)
+    return current.select(
         "customer_id",
         "region",
         F.explode(F.sequence(F.lit(0), F.lit(SKEW_SALT_BUCKETS - 1))).alias("salt"),
@@ -74,7 +85,8 @@ def with_customer_region(spark: SparkSession, orders: DataFrame, customers: Data
     buckets = int(spark.conf.get("spark.sql.shuffle.partitions", "200") or "200")
     salted = orders.withColumn("salt", F.pmod(F.hash(F.col("order_id")), F.lit(buckets)))
     joined = salted.join(customers, ["customer_id", "salt"], "left").drop("salt")
-    return joined.filter(F.col("region") != "INTERNAL")
+    labeled = joined.withColumn("region", F.coalesce(F.col("region"), F.lit("unknown")))
+    return labeled.filter(F.col("region") != "INTERNAL")
 
 
 def aggregate_daily(orders: DataFrame) -> DataFrame:
@@ -112,11 +124,14 @@ def write_csv_extract(df: DataFrame, path: str) -> None:
             writer.writerow([row[c] for c in columns])
 
 
-def write_daily(df: DataFrame, paths: LakePaths) -> None:
+def write_daily(df: DataFrame, paths: LakePaths, backfill: bool = False) -> None:
     # Dynamic partition overwrite: only the partitions present in df are replaced.
-    df.repartition("dt").write.mode("overwrite").partitionBy("dt").parquet(
-        paths.daily_customer_orders
-    )
+    writer = df.repartition("dt").write.mode("overwrite")
+    if backfill:
+        # Some catalogs warn that dynamic overwrite is unsupported mid-backfill.
+        # Explicit is better, we always pass the partition we want.
+        writer = writer.option("partitionOverwriteMode", "static")
+    writer.partitionBy("dt").parquet(paths.daily_customer_orders)
 
 
 def run(
@@ -132,7 +147,7 @@ def run(
         )
     labeled = with_customer_region(spark, orders, read_customers(spark, paths))
     daily = aggregate_daily(labeled).cache()
-    write_daily(daily, paths)
+    write_daily(daily, paths, backfill=backfill)
     write_csv_extract(daily, f"{paths.extracts}/{days.start}_{days.end}.csv")
     log.info("wrote %d rows for %s..%s", daily.count(), days.start, days.end)
     return daily
@@ -149,15 +164,24 @@ def run_backfill(
     return chunks
 
 
+def default_backfill_range() -> DateRange:
+    """Trailing DEFAULT_BACKFILL_DAYS days ending yesterday, for a bare --backfill."""
+    end = date.today() - timedelta(days=1)
+    return DateRange(end - timedelta(days=DEFAULT_BACKFILL_DAYS - 1), end)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Daily order aggregation")
     parser.add_argument("--root", required=True)
-    parser.add_argument("--start", required=True, help="YYYY-MM-DD inclusive")
-    parser.add_argument("--end", required=True, help="YYYY-MM-DD inclusive")
+    parser.add_argument("--start", help="YYYY-MM-DD inclusive, defaults to a trailing window")
+    parser.add_argument("--end", help="YYYY-MM-DD inclusive, defaults to a trailing window")
     parser.add_argument("--backfill", action="store_true", help="process the range in chunks")
     parser.add_argument("--chunk-days", type=int, default=7)
     args = parser.parse_args(argv)
-    days = DateRange(parse_dt(args.start), parse_dt(args.end))
+    if args.start and args.end:
+        days = DateRange(parse_dt(args.start), parse_dt(args.end))
+    else:
+        days = default_backfill_range()
     spark = get_spark("daily_orders")
     paths = LakePaths(args.root)
     if args.backfill:
