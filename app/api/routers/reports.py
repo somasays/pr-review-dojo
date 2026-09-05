@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter
@@ -32,10 +33,13 @@ def recent_total(db: DbSession, _admin: AdminPrincipal, days: int = 7) -> dict[s
 def rate_limit_usage(_admin: AdminPrincipal) -> list[dict[str, object]]:
     limiter = get_rate_limiter()
     settings = get_settings()
+    now = time.monotonic()
     rows: list[dict[str, object]] = []
     for key, hits in limiter.snapshot().items():
         started = limiter.window_started(key)
-        resets_in = seconds_until_reset(started, limiter.policy.window_seconds) if started else 0
+        resets_in = (
+            seconds_until_reset(started, limiter.policy.window_seconds, now) if started else 0
+        )
         used_pct = hits / settings.rate_limit_per_minute
         rows.append(
             {

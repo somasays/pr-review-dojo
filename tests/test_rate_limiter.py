@@ -62,8 +62,8 @@ def test_rate_limit_headers_are_returned(client) -> None:
 
 
 def test_seconds_until_reset_counts_down_to_zero() -> None:
-    assert seconds_until_reset(time.monotonic(), 60) in (59, 60)
-    assert seconds_until_reset(time.monotonic() - 90, 60) == 0
+    assert seconds_until_reset(1_000.0, 60, now=1_000.0) == 60
+    assert seconds_until_reset(1_000.0, 60, now=1_090.0) == 0
 
 
 def test_rate_limit_usage_report(client) -> None:
