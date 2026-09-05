@@ -17,6 +17,7 @@ import argparse
 import logging
 import os
 import shutil
+from dataclasses import dataclass
 
 from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
@@ -31,6 +32,24 @@ WATERMARK = "10 minutes"
 PAID_STATUS = "paid"
 UPSERT_TRIGGER = "30 seconds"
 PAID_COUNTS_TRIGGER = "30 seconds"
+
+
+@dataclass(frozen=True)
+class StreamPaths:
+    """The trio of paths every new sink query needs."""
+
+    source_dir: str
+    target: str
+    checkpoint: str
+
+
+def _stage_and_overwrite(df: DataFrame, target: str) -> None:
+    """Write df to target, staging first since target may be an input of df's plan."""
+    spark = df.sparkSession
+    staging = f"{target}__staging"
+    df.write.mode("overwrite").parquet(staging)
+    spark.read.parquet(staging).write.mode("overwrite").parquet(target)
+    shutil.rmtree(staging, ignore_errors=True)
 
 
 def read_events(spark: SparkSession, source_dir: str) -> DataFrame:
@@ -75,11 +94,7 @@ def upsert_batch(batch: DataFrame, batch_id: int, target: str) -> None:
         merged = latest_per_order(existing.unionByName(incoming, allowMissingColumns=True))
     else:
         merged = incoming
-    # Stage first: Spark cannot overwrite a path it is still reading from.
-    staging = f"{target}__staging"
-    merged.write.mode("overwrite").parquet(staging)
-    spark.read.parquet(staging).write.mode("overwrite").parquet(target)
-    shutil.rmtree(staging, ignore_errors=True)
+    _stage_and_overwrite(merged, target)
     log.info("batch %d merged", batch_id)
 
 
@@ -89,11 +104,8 @@ def batch_paid_counts(batch: DataFrame) -> DataFrame:
     An order can appear more than once in a batch (a retried producer send,
     or two paid events for the same order), so orders are counted once.
     """
-    return (
-        batch.select("customer_id", "order_id")
-        .distinct()
-        .groupBy("customer_id")
-        .agg(F.count("*").cast("int").alias("paid_count"))
+    return batch.groupBy("customer_id").agg(
+        F.countDistinct("order_id").cast("int").alias("paid_count")
     )
 
 
@@ -122,11 +134,7 @@ def merge_paid_counts(batch: DataFrame, batch_id: int, target: str) -> None:
     else:
         merged = deltas
     merged = merged.withColumn("_batch_id", F.lit(batch_id))
-    # Stage first: Spark cannot overwrite a path it is still reading from.
-    staging = f"{target}__staging"
-    merged.write.mode("overwrite").parquet(staging)
-    spark.read.parquet(staging).write.mode("overwrite").parquet(target)
-    shutil.rmtree(staging, ignore_errors=True)
+    _stage_and_overwrite(merged, target)
     log.info("paid counts batch %d merged", batch_id)
 
 
@@ -145,13 +153,13 @@ def start(
 
 
 def start_paid_counts(
-    spark: SparkSession, source_dir: str, target: str, checkpoint: str, available_now: bool = False
+    spark: SparkSession, paths: StreamPaths, available_now: bool = False
 ) -> StreamingQuery:
-    events = paid_events(spark, source_dir)
+    events = paid_events(spark, paths.source_dir)
     writer = (
         events.writeStream.queryName("paid_order_counts")
-        .option("checkpointLocation", checkpoint)
-        .foreachBatch(lambda df, bid: merge_paid_counts(df, bid, target))
+        .option("checkpointLocation", paths.checkpoint)
+        .foreachBatch(lambda df, bid: merge_paid_counts(df, bid, paths.target))
     )
     if available_now:
         writer = writer.trigger(availableNow=True)
@@ -160,29 +168,61 @@ def start_paid_counts(
     return writer.start()
 
 
-def customer_running_totals(spark: SparkSession, source_dir: str) -> DataFrame:
-    """Lifetime paid total per customer, for the spend-so-far report."""
-    return (
-        paid_events(spark, source_dir)
-        .groupBy("customer_id")
-        .agg(F.sum("total").alias("total_paid"))
-    )
+def batch_customer_totals(batch: DataFrame) -> DataFrame:
+    """Paid amount per customer in one micro-batch."""
+    return batch.groupBy("customer_id").agg(F.sum("total").alias("total_paid"))
+
+
+def merge_customer_totals(batch: DataFrame, batch_id: int, target: str) -> None:
+    """Add this batch's paid amount to the running total per customer.
+
+    Same replay-safety shape as `merge_paid_counts`: adding is not
+    idempotent, so the batch id that produced the table is stored alongside
+    the totals and a batch Spark replays after a failure is skipped.
+    """
+    spark = batch.sparkSession
+    deltas = batch_customer_totals(batch)
+    if os.path.exists(target):
+        existing = spark.read.parquet(target)
+        applied = existing.agg(F.max("_batch_id")).first()[0]
+        if applied is not None and applied >= batch_id:
+            log.info("customer totals batch %d already applied, skipping", batch_id)
+            return
+        merged = (
+            existing.drop("_batch_id")
+            .unionByName(deltas)
+            .groupBy("customer_id")
+            .agg(F.sum("total_paid").alias("total_paid"))
+        )
+    else:
+        merged = deltas
+    merged = merged.withColumn("_batch_id", F.lit(batch_id))
+    _stage_and_overwrite(merged, target)
+    log.info("customer totals batch %d merged", batch_id)
 
 
 def start_customer_totals(
     spark: SparkSession, source_dir: str, target: str, checkpoint: str, available_now: bool = False
 ) -> StreamingQuery:
-    totals = customer_running_totals(spark, source_dir)
+    """Lifetime paid total per customer, merged the same way as `paid_order_counts`.
+
+    A `groupBy("customer_id")` aggregate in complete output mode would hold
+    one row per customer in state forever, since the key has no time
+    component a watermark could expire it by, and every trigger would
+    rewrite every customer ever seen instead of just this batch. Merging
+    per-batch deltas into a plain table, like `merge_paid_counts` does,
+    keeps the state and the per-trigger write bounded by the batch.
+    """
+    events = paid_events(spark, source_dir)
     writer = (
-        totals.writeStream.queryName("customer_running_totals")
-        .outputMode("complete")
+        events.writeStream.queryName("customer_running_totals")
         .option("checkpointLocation", checkpoint)
-        .foreachBatch(lambda df, _bid: df.write.mode("overwrite").parquet(target))
+        .foreachBatch(lambda df, bid: merge_customer_totals(df, bid, target))
     )
     if available_now:
         writer = writer.trigger(availableNow=True)
     else:
-        writer = writer.trigger(processingTime="30 seconds")
+        writer = writer.trigger(processingTime=PAID_COUNTS_TRIGGER)
     return writer.start()
 
 
@@ -204,11 +244,8 @@ def main(argv: list[str] | None = None) -> None:
     spark = get_spark("order_events")
     queries = [start(spark, args.source, args.target, args.checkpoint, args.once)]
     if args.counts_target:
-        queries.append(
-            start_paid_counts(
-                spark, args.source, args.counts_target, args.counts_checkpoint, args.once
-            )
-        )
+        counts_paths = StreamPaths(args.source, args.counts_target, args.counts_checkpoint)
+        queries.append(start_paid_counts(spark, counts_paths, args.once))
     if args.totals_target:
         queries.append(
             start_customer_totals(
