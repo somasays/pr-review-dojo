@@ -109,6 +109,64 @@ a 50.00 subtotal. Asserting that this flips tie order is a false positive.
 Asking "does `max` keep the tie order the docstring promises?" is not, and it
 is a fair question if you do not remember the rule.
 
+## Design and tests
+
+**The holiday check reads the clock directly (Minor design).**
+`holiday_bonus_active` is `return date.today().month in (11, 12)`, no
+parameter. The tell is the same one that catches every clock-inside-logic
+smell: try to write a test for December without changing your machine's date,
+and you cannot, short of monkeypatching the module's `date`. A strong reviewer
+notices this while reading the function signature before even reading the
+body: a function with a temporal name and no time-shaped parameter is worth a
+second look. The fix takes `today: date | None = None` and defaults it inside
+the function, so the caller still gets today for free and a test can pin the
+date.
+
+**The receipt split re-implements `Money.allocate` (Minor design).**
+`volume_receipt_shares` computes `cents = int(volume_off.amount * 100)`, then
+`divmod(cents, len(lines))`, then rebuilds `Money` objects one by one with the
+same remainder rule `Money.allocate` already implements two files up. The
+signal is not a bug, the arithmetic is correct today. It is duplication: two
+places now encode "how do we split a remainder across n buckets", and only one
+of them will get updated the day that rule changes. A reviewer who has read
+`money.py` recognizes the shape on sight; a reviewer who has not would still
+notice that a domain module is doing cents arithmetic by hand next to a type
+called `Money` that exists to prevent exactly that.
+
+**The seasonal discount takes a boolean flag (Minor refactor).**
+`volume_discount_for_season(subtotal, quantity, holiday=False)` switches
+between two different calculations depending on one boolean. It is not wrong
+and there is only one call site today, so it is not blocking. The habit worth
+building is reading every boolean parameter as a question: "what does the
+`True` branch do that the `False` branch does not, and will I remember that
+from the call site alone?" `volume_discount_for_season(subtotal, qty, True)`
+answers no. Splitting into two named functions once a second caller appears
+is the natural next step, which is exactly why this is phrased as a
+suggestion and not a blocking comment.
+
+**The shipped test skips the boundary (Major test finding).**
+`test_volume_tier_lookup` checks 12, 60, and 3. The tier thresholds are 10 and
+50. None of the three numbers is within one unit of either threshold. A
+strong reviewer catches this by doing the same thing twice: read the
+production code for its thresholds first, then read the test for the values
+it exercises, and compare the two lists. If the test's numbers are all more
+than one or two away from every threshold in the code, the boundary is
+untested, and in this exercise that is exactly where the tier lookup bug
+lives. This is why a test finding and a defect finding can point at the same
+root cause from two different angles: one says the code is wrong, the other
+says nothing would have told you.
+
+Two questions an interviewer might ask about these four:
+
+1. The receipt split and the holiday bonus check both live in the same file
+   as `Money.allocate` and `date`-based helpers elsewhere in the codebase.
+   What would you look for in a codebase before writing new logic, to avoid
+   re-deriving something that already exists?
+2. The boundary-skipped test and the tier boundary defect are two findings
+   about the same two lines of behavior. If you could only leave one comment
+   on this PR, which of the two would you pick, and what makes it the more
+   useful comment to a mid-level author fixing this alone?
+
 ## Five questions an interviewer would ask about the rewrite
 
 1. The cap is one comparison after the addition. Where else could it have gone,
