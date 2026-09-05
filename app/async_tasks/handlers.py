@@ -68,7 +68,7 @@ def record_metric(payload: dict[str, Any]) -> None:
 
 async def check_gateway_health(payload: dict[str, Any]) -> None:
     """Ping the notification gateway before a dispatch run starts."""
-    response = httpx.get(str(payload["url"]), timeout=2.0)
+    response = await asyncio.to_thread(httpx.get, str(payload["url"]), timeout=2.0)
     metrics.append(("gateway_status", response.status_code))
 
 
