@@ -21,6 +21,14 @@ git diff --stat main...HEAD
 
 Open the center-of-gravity file in full, not the diff view.
 
+For a logic-heavy change (domain code, pricing, dates, transforms), do not
+start at the biggest file. Start at the entry point and build a call tree:
+
+1. Find who calls the changed module from an outer layer: `grep -rn "from app.domain.<mod> import" app/services app/api`. That call is the entry point.
+2. From it, write the call tree top-down, one line per function, with what each produces, from names and docstrings only. List what is in the diff but not in the tree: orphan functions are a question for the author.
+3. Review leaves first with a boundary table (exactly at the threshold, one below, one above, zero, empty, negative), then the composer with the pipeline pass: list its assignments in order ignoring the `if`s, write the invariant each value must satisfy, grep for where each invariant is enforced, and build one input that gets past the unenforced one. Run it by hand and follow the bad value downstream until something rejects or persists it.
+4. In this codebase `app/domain` helpers are public so they can be unit-tested; public does not mean entry point.
+
 1. Outline it: `grep -n "^class \|^def \|    def \|self\._[a-z_]* =" <file>`. The `def` lines are the surface, the `self._x =` lines are the state.
 2. Trace one common call end to end, one line per hop, recording what happens to each piece of state.
 3. Trace the lifecycle: how many instances per process, created when, started and stopped how. Write it as one sentence.
