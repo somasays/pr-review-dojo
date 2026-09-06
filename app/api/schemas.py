@@ -32,8 +32,7 @@ class OrderItemIn(BaseModel):
     quantity: int = Field(gt=0, le=1000)
 
 
-class OrderCreate(BaseModel):
-    idempotency_key: str = Field(min_length=8, max_length=64)
+class BasketIn(BaseModel):
     items: list[OrderItemIn] = Field(min_length=1, max_length=50)
     discount_codes: list[str] = Field(default_factory=list, max_length=3)
 
@@ -44,6 +43,14 @@ class OrderCreate(BaseModel):
         if len(skus) != len(set(skus)):
             raise ValueError("duplicate sku in items")
         return items
+
+
+class OrderCreate(BasketIn):
+    idempotency_key: str = Field(min_length=8, max_length=64)
+
+
+class ReorderCreate(BaseModel):
+    idempotency_key: str = Field(min_length=8, max_length=64)
 
 
 class OrderItemOut(BaseModel):
@@ -73,6 +80,15 @@ class Page[T](BaseModel):
     items: list[T]
     limit: int
     offset: int
+
+
+class QuoteOut(BaseModel):
+    currency: str
+    subtotal: Decimal
+    discount: Decimal
+    tax: Decimal
+    total: Decimal
+    discount_code: str | None
 
 
 class StatusCount(BaseModel):
