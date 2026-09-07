@@ -20,3 +20,10 @@ def test_redeem_with_zero_total_takes_nothing():
     result = redeem(Money.zero(), Money.of("50.00"))
     assert result.redeemed == Money.zero()
     assert result.remaining_balance == Money.of("50.00")
+
+
+def test_redeem_partial_when_balance_is_smaller():
+    result = redeem(Money.of("50.00"), Money.of("30.00"))
+    assert result.redeemed == Money.of("30.00")
+    assert result.remaining_charge == Money.of("20.00")
+    assert result.remaining_balance == Money.zero()

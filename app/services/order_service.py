@@ -67,9 +67,8 @@ class OrderService:
         gift_card_code = None
         gift_card_redeemed = Decimal("0")
         if cmd.gift_card_code:
-            gift_card_code, gift_card_redeemed = self._apply_gift_card(
-                cmd.gift_card_code, q.total.amount, q.total.currency
-            )
+            gift_card_code = cmd.gift_card_code
+            gift_card_redeemed = self._apply_gift_card(cmd.gift_card_code, q.total).amount
 
         order = Order(
             customer_id=customer.id,
@@ -108,17 +107,12 @@ class OrderService:
             return winner
         return order
 
-    def _apply_gift_card(
-        self, code: str, total_amount: Decimal, currency: str
-    ) -> tuple[str, Decimal]:
-        """Redeem a gift card against the order total, returning its code and the amount taken."""
+    def _apply_gift_card(self, code: str, total: Money) -> Money:
+        """Redeem a gift card against the order total, returning the amount taken."""
         card = self.gift_cards.get_by_code(code)
-        result = redeem(Money(total_amount, currency), Money(card.balance, card.currency))
+        result = redeem(total, Money(card.balance, card.currency))
         self.gift_cards.apply(card, result.remaining_balance.amount)
-        # Make the redemption durable before the order insert below, so the
-        # balance is never left dangling if something after this fails.
-        self.session.commit()
-        return card.code, result.redeemed.amount
+        return result.redeemed
 
     def _move(self, order: Order, target: OrderStatus) -> Order:
         current = OrderStatus(order.status)

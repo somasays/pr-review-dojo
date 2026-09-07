@@ -20,16 +20,13 @@ class Redemption:
     remaining_balance: Money
 
 
-def redeem(total: Money, balance: Money, *, min_remaining: Money | None = None) -> Redemption:
+def redeem(total: Money, balance: Money) -> Redemption:
     """Split `total` between the gift card balance and what is still owed.
 
     Redeems at most the card's balance and at most the order total, so the
     card never covers more than the order costs and the remaining charge
     never goes below zero. Redemption is partial when the balance is smaller
     than the total: the card is drawn down and the rest is still due.
-
-    `min_remaining` lets a caller require the card to keep a minimum balance
-    after redemption; unset, the card can be drawn down to zero.
     """
     if total.is_zero() or balance.is_zero():
         return Redemption(
@@ -39,7 +36,7 @@ def redeem(total: Money, balance: Money, *, min_remaining: Money | None = None) 
         )
     redeemed = total if total.amount <= balance.amount else balance
     remaining_charge = total - redeemed
-    remaining_balance = balance - total
+    remaining_balance = balance - redeemed
     return Redemption(
         redeemed=redeemed, remaining_charge=remaining_charge, remaining_balance=remaining_balance
     )
