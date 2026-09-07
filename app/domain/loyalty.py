@@ -22,25 +22,21 @@ LOYALTY_TIERS: tuple[tuple[Money, Decimal], ...] = (
 )
 
 
-def _rate_for(lifetime_spend: Money, tiers: tuple[tuple[Money, Decimal], ...]) -> Decimal:
-    for minimum, rate in tiers:
+def _rate_for(lifetime_spend: Money) -> Decimal:
+    for minimum, rate in LOYALTY_TIERS:
         if minimum <= lifetime_spend:
             return rate
     return Decimal("0")
 
 
-def loyalty_credit(
-    lifetime_spend: Money,
-    taxable: Money,
-    tiers: tuple[tuple[Money, Decimal], ...] = LOYALTY_TIERS,
-) -> Money:
+def loyalty_credit(lifetime_spend: Money, taxable: Money) -> Money:
     """Return the loyalty credit for an order given the customer's lifetime spend.
 
     `taxable` is the order's subtotal after discount codes, before tax. The
     credit is a percentage of that amount, tiered by `lifetime_spend`,
     capped at `MAX_CREDIT_PER_ORDER`.
     """
-    rate = _rate_for(lifetime_spend, tiers)
+    rate = _rate_for(lifetime_spend)
     credit = taxable.percent(rate)
     if MAX_CREDIT_PER_ORDER < credit:
         return MAX_CREDIT_PER_ORDER
