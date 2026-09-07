@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from sandbox.rooms.db import Room
 from sandbox.rooms.domain.slots import Slot
-from sandbox.rooms.repo import BookingRepo, RoomRepo
+from sandbox.rooms.repo import BookingRepo, RoomRepo, WaitlistRepo
 from sandbox.rooms.service import BookingService, Conflict, NotAllowed, NotFound
 
 
@@ -22,7 +22,7 @@ def _slot(start_hour: int, end_hour: int, start_minute: int = 0, end_minute: int
 
 @pytest.fixture
 def service(db: Session) -> BookingService:
-    return BookingService(RoomRepo(db), BookingRepo(db))
+    return BookingService(RoomRepo(db), BookingRepo(db), WaitlistRepo(db))
 
 
 def test_book_creates_booking(service: BookingService, room: Room) -> None:
@@ -72,3 +72,34 @@ def test_cancel_by_non_holder_raises_not_allowed(service: BookingService, room: 
 def test_cancel_unknown_booking_raises_not_found(service: BookingService) -> None:
     with pytest.raises(NotFound):
         service.cancel("no-such-booking", "ada@example.com")
+
+
+def test_book_recurring_creates_one_booking_per_week_with_credit(
+    service: BookingService, room: Room
+) -> None:
+    bookings = service.book_recurring(
+        room.id, "ada@example.com", _slot(9, 10), weeks=4, member=True
+    )
+    assert len(bookings) == 4
+    starts = [b.start for b in bookings]
+    assert starts == sorted(starts)
+    assert (starts[1] - starts[0]).days == 7
+    # 2000 metered, 15% member discount -> 1700, minus a 250 share of the 1000 credit.
+    assert all(b.price_cents == 1450 for b in bookings)
+
+
+def test_join_waitlist_records_holder(service: BookingService, room: Room) -> None:
+    entry = service.join_waitlist(room.id, "bea@example.com", _slot(9, 10), member=False)
+    assert entry.holder_email == "bea@example.com"
+    assert entry.fulfilled_at is None
+
+
+def test_cancel_promotes_first_waitlist_holder(service: BookingService, room: Room) -> None:
+    booking = service.book(room.id, "ada@example.com", _slot(9, 10), member=False)
+    service.join_waitlist(room.id, "bea@example.com", _slot(9, 10), member=False)
+
+    service.cancel(booking.id, "ada@example.com")
+
+    active = service.bookings.find_conflicts(room.id, _slot(9, 10))
+    assert len(active) == 1
+    assert active[0].holder_email == "bea@example.com"

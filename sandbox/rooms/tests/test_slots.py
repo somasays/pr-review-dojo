@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from sandbox.rooms.domain.slots import MIN_CHARGE_CENTS, Slot, price_cents
+from sandbox.rooms.domain.slots import MIN_CHARGE_CENTS, Slot, price_cents, split_credit_cents
 
 
 def _dt(hour: int, minute: int = 0) -> datetime:
@@ -72,3 +72,15 @@ def test_price_cents_rejects_negative_rate() -> None:
     slot = Slot(_dt(9, 0), _dt(10, 0))
     with pytest.raises(ValueError, match="negative"):
         price_cents(slot, rate_cents_per_hour=-1, member=False)
+
+
+def test_split_credit_cents_evenly() -> None:
+    assert split_credit_cents(900, 3) == [300, 300, 300]
+    assert split_credit_cents(1000, 1) == [1000]
+
+
+def test_split_credit_cents_rejects_negative_or_empty() -> None:
+    with pytest.raises(ValueError, match="negative"):
+        split_credit_cents(-1, 3)
+    with pytest.raises(ValueError, match="at least 1"):
+        split_credit_cents(300, 0)

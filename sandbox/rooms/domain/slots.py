@@ -9,11 +9,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 HALF_HOUR = timedelta(minutes=30)
+WEEK = timedelta(days=7)
 MAX_DURATION = timedelta(hours=8)
 MEMBER_DISCOUNT_PERCENT = 15
 MIN_CHARGE_CENTS = 500
+MAX_RECURRING_WEEKS = 8
+MEMBER_MONTHLY_CREDIT_CENTS = 1000
 
 
 def _is_half_hour_aligned(ts: datetime) -> bool:
@@ -70,3 +74,28 @@ def price_cents(slot: Slot, rate_cents_per_hour: int, member: bool) -> int:
     if member:
         metered = metered * (100 - MEMBER_DISCOUNT_PERCENT) // 100
     return max(metered, MIN_CHARGE_CENTS)
+
+
+def recurring_slots(first: Slot, weeks: int) -> list[Slot]:
+    """Return `weeks` slots at the same time of day, one week apart.
+
+    `first` is the first occurrence; every later one shifts by exactly 7
+    days so it lands on the same weekday and time.
+    """
+    if not 1 <= weeks <= MAX_RECURRING_WEEKS:
+        raise ValueError(f"weeks must be between 1 and {MAX_RECURRING_WEEKS}")
+    return [Slot(first.start + WEEK * i, first.end + WEEK * i) for i in range(weeks)]
+
+
+def split_credit_cents(credit_cents: int, count: int) -> list[int]:
+    """Split a member's monthly credit evenly across `count` bookings.
+
+    Every booking in a recurring series gets an equal share of the credit,
+    so a member does not have to redeem it one booking at a time.
+    """
+    if credit_cents < 0:
+        raise ValueError("credit_cents must not be negative")
+    if count < 1:
+        raise ValueError("count must be at least 1")
+    share = int(Decimal(credit_cents) / count)
+    return [share] * count

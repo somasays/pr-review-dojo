@@ -5,9 +5,20 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sandbox.rooms.db import Booking
-from sandbox.rooms.domain.slots import Slot, price_cents
-from sandbox.rooms.repo import BookingRepo, RoomRepo
+from sandbox.rooms.db import Booking, Waitlist
+from sandbox.rooms.domain.slots import (
+    MEMBER_MONTHLY_CREDIT_CENTS,
+    Slot,
+    price_cents,
+    recurring_slots,
+    split_credit_cents,
+)
+from sandbox.rooms.repo import BookingRepo, RoomRepo, WaitlistRepo
+
+
+def _as_utc(ts: datetime) -> datetime:
+    """SQLite drops tzinfo on round-trip even for timezone-aware columns."""
+    return ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
 
 
 class NotFound(Exception):
@@ -23,9 +34,10 @@ class NotAllowed(Exception):
 
 
 class BookingService:
-    def __init__(self, rooms: RoomRepo, bookings: BookingRepo) -> None:
+    def __init__(self, rooms: RoomRepo, bookings: BookingRepo, waitlist: WaitlistRepo) -> None:
         self.rooms = rooms
         self.bookings = bookings
+        self.waitlist = waitlist
 
     def book(self, room_id: str, holder_email: str, slot: Slot, member: bool) -> Booking:
         room = self.rooms.get(room_id)
@@ -44,6 +56,33 @@ class BookingService:
         )
         return self.bookings.add(booking)
 
+    def book_recurring(
+        self, room_id: str, holder_email: str, first_slot: Slot, weeks: int, member: bool
+    ) -> list[Booking]:
+        """Book the same slot every week for `weeks` weeks, or none of them."""
+        room = self.rooms.get(room_id)
+        if room is None or not room.active:
+            raise NotFound(f"room {room_id!r} not found or inactive")
+        slots = recurring_slots(first_slot, weeks)
+        credit_cents = MEMBER_MONTHLY_CREDIT_CENTS if member else 0
+        shares = split_credit_cents(credit_cents, weeks)
+        bookings = []
+        for slot, share in zip(slots, shares, strict=True):
+            if self.bookings.find_conflicts(room_id, slot):
+                raise Conflict(f"room {room_id!r} is already booked for {slot.start.isoformat()}")
+            price = max(price_cents(slot, room.rate_cents_per_hour, member) - share, 0)
+            booking = Booking(
+                id=str(uuid.uuid4()),
+                room_id=room_id,
+                holder_email=holder_email,
+                start=slot.start,
+                end=slot.end,
+                price_cents=price,
+                created_at=datetime.now(UTC),
+            )
+            bookings.append(self.bookings.add(booking))
+        return bookings
+
     def cancel(self, booking_id: str, holder_email: str) -> Booking:
         booking = self.bookings.get(booking_id)
         if booking is None:
@@ -54,4 +93,41 @@ class BookingService:
             return booking
         cancelled = self.bookings.cancel(booking_id)
         assert cancelled is not None
+        self._promote_waitlist(cancelled)
         return cancelled
+
+    def join_waitlist(self, room_id: str, holder_email: str, slot: Slot, member: bool) -> Waitlist:
+        room = self.rooms.get(room_id)
+        if room is None or not room.active:
+            raise NotFound(f"room {room_id!r} not found or inactive")
+        entry = Waitlist(
+            id=str(uuid.uuid4()),
+            room_id=room_id,
+            holder_email=holder_email,
+            start=slot.start,
+            end=slot.end,
+            member=member,
+            created_at=datetime.now(UTC),
+        )
+        return self.waitlist.add(entry)
+
+    def _promote_waitlist(self, freed: Booking) -> Booking | None:
+        """Book the first waiting holder into the slot a cancellation just freed."""
+        entry = self.waitlist.first_active(freed.room_id)
+        if entry is None:
+            return None
+        room = self.rooms.get(freed.room_id)
+        assert room is not None
+        slot = Slot(_as_utc(entry.start), _as_utc(entry.end))
+        booking = Booking(
+            id=str(uuid.uuid4()),
+            room_id=freed.room_id,
+            holder_email=entry.holder_email,
+            start=slot.start,
+            end=slot.end,
+            price_cents=price_cents(slot, room.rate_cents_per_hour, entry.member),
+            created_at=datetime.now(UTC),
+        )
+        created = self.bookings.add(booking)
+        self.waitlist.mark_fulfilled(entry.id)
+        return created

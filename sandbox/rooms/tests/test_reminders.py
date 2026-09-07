@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sandbox.rooms.db import Room
 from sandbox.rooms.domain.slots import Slot
 from sandbox.rooms.reminders import send_reminders
-from sandbox.rooms.repo import BookingRepo, RoomRepo
+from sandbox.rooms.repo import BookingRepo, RoomRepo, WaitlistRepo
 from sandbox.rooms.service import BookingService
 
 NOW = datetime(2026, 9, 8, 8, 30, tzinfo=UTC)
@@ -28,7 +28,7 @@ def _book_starting_in(service: BookingService, room: Room, minutes: int) -> str:
 def test_send_reminders_sends_only_bookings_in_window(
     session_factory: sessionmaker[Session], db: Session, room: Room
 ) -> None:
-    service = BookingService(RoomRepo(db), BookingRepo(db))
+    service = BookingService(RoomRepo(db), BookingRepo(db), WaitlistRepo(db))
     soon_id = _book_starting_in(service, room, 30)
     later_id = _book_starting_in(service, room, 180)
 
@@ -43,7 +43,7 @@ def test_send_reminders_sends_only_bookings_in_window(
 def test_send_reminders_is_idempotent(
     session_factory: sessionmaker[Session], db: Session, room: Room
 ) -> None:
-    service = BookingService(RoomRepo(db), BookingRepo(db))
+    service = BookingService(RoomRepo(db), BookingRepo(db), WaitlistRepo(db))
     _book_starting_in(service, room, 30)
 
     sent: list[str] = []
