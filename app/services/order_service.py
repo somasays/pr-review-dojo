@@ -115,9 +115,6 @@ class OrderService:
         card = self.gift_cards.get_by_code(code)
         result = redeem(Money(total_amount, currency), Money(card.balance, card.currency))
         self.gift_cards.apply(card, result.remaining_balance.amount)
-        # Make the redemption durable before the order insert below, so the
-        # balance is never left dangling if something after this fails.
-        self.session.commit()
         return card.code, result.redeemed.amount
 
     def _move(self, order: Order, target: OrderStatus) -> Order:
