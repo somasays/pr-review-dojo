@@ -41,7 +41,7 @@ def loyalty_credit(
     capped at `MAX_CREDIT_PER_ORDER`.
     """
     rate = _rate_for(lifetime_spend, tiers)
-    credit = Money(taxable.amount * rate / Decimal(100), taxable.currency)
+    credit = taxable.percent(rate)
     if MAX_CREDIT_PER_ORDER < credit:
         return MAX_CREDIT_PER_ORDER
     return credit
