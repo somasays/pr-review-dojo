@@ -9,12 +9,20 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from decimal import Decimal
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Order, OrderItem
-from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
+from app.db.repositories import (
+    CustomerRepository,
+    GiftCardRepository,
+    OrderRepository,
+    ProductRepository,
+)
+from app.domain.gift_card import redeem
+from app.domain.money import Money
 from app.domain.order_state import OrderStatus, is_cancellable, transition
 from app.services.notification import NotificationService
 from app.services.pricing_service import ItemRequest, PricingService
@@ -28,6 +36,7 @@ class CreateOrderCommand:
     idempotency_key: str
     items: list[ItemRequest]
     discount_codes: list[str]
+    gift_card_code: str | None = None
 
 
 class OrderService:
@@ -41,6 +50,7 @@ class OrderService:
         self.orders = OrderRepository(session)
         self.customers = CustomerRepository(session)
         self.products = ProductRepository(session)
+        self.gift_cards = GiftCardRepository(session)
         self.pricing = pricing
         self.notifications = notifications
 
@@ -54,6 +64,13 @@ class OrderService:
         products = self.products.by_skus([i.sku for i in cmd.items])
         q = self.pricing.quote(cmd.items, products, cmd.discount_codes, customer.region)
 
+        gift_card_code = None
+        gift_card_redeemed = Decimal("0")
+        if cmd.gift_card_code:
+            gift_card_code, gift_card_redeemed = self._apply_gift_card(
+                cmd.gift_card_code, q.total.amount, q.total.currency
+            )
+
         order = Order(
             customer_id=customer.id,
             idempotency_key=cmd.idempotency_key,
@@ -64,6 +81,8 @@ class OrderService:
             tax=q.tax.amount,
             total=q.total.amount,
             discount_code=q.applied_codes[0] if q.applied_codes else None,
+            gift_card_code=gift_card_code,
+            gift_card_redeemed=gift_card_redeemed,
         )
         items = [
             OrderItem(
@@ -88,6 +107,18 @@ class OrderService:
             assert winner is not None
             return winner
         return order
+
+    def _apply_gift_card(
+        self, code: str, total_amount: Decimal, currency: str
+    ) -> tuple[str, Decimal]:
+        """Redeem a gift card against the order total, returning its code and the amount taken."""
+        card = self.gift_cards.get_by_code(code)
+        result = redeem(Money(total_amount, currency), Money(card.balance, card.currency))
+        self.gift_cards.apply(card, result.remaining_balance.amount)
+        # Make the redemption durable before the order insert below, so the
+        # balance is never left dangling if something after this fails.
+        self.session.commit()
+        return card.code, result.redeemed.amount
 
     def _move(self, order: Order, target: OrderStatus) -> Order:
         current = OrderStatus(order.status)

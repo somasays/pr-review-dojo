@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Customer, Order, OrderItem, Product
+from app.db.models import Customer, GiftCard, Order, OrderItem, Product
 from app.domain.order_state import OrderStatus
 
 
@@ -126,3 +127,19 @@ class OrderRepository:
     def count_by_status(self) -> dict[str, int]:
         stmt = select(Order.status, func.count(Order.id)).group_by(Order.status)
         return {status: count for status, count in self.session.execute(stmt).all()}
+
+
+class GiftCardRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get_by_code(self, code: str) -> GiftCard:
+        row = self.session.scalar(select(GiftCard).where(GiftCard.code == code))
+        if row is None:
+            raise NotFound("gift card", code)
+        return row
+
+    def apply(self, card: GiftCard, new_balance: Decimal) -> GiftCard:
+        card.balance = new_balance
+        self.session.flush()
+        return card

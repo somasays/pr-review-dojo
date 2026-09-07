@@ -36,6 +36,7 @@ class OrderCreate(BaseModel):
     idempotency_key: str = Field(min_length=8, max_length=64)
     items: list[OrderItemIn] = Field(min_length=1, max_length=50)
     discount_codes: list[str] = Field(default_factory=list, max_length=3)
+    gift_card_code: str | None = Field(default=None, min_length=1, max_length=32)
 
     @field_validator("items")
     @classmethod
@@ -65,8 +66,19 @@ class OrderOut(BaseModel):
     tax: Decimal
     total: Decimal
     discount_code: str | None
+    gift_card_code: str | None
+    gift_card_redeemed: Decimal
+    remaining_charge: Decimal
     created_at: datetime
     items: list[OrderItemOut]
+
+
+class GiftCardOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    balance: Decimal
+    currency: str
 
 
 class Page[T](BaseModel):
