@@ -74,3 +74,21 @@ This step turns component correctness into system correctness: runtime context m
 ## Step 5: after the grade
 
 Sort misses into "did not look there" and "looked and did not see". The first kind becomes a step 1 or 3 question; the second kind becomes a step 2 grep.
+
+## Failure modes by change type
+
+| The PR touches | Look for |
+| --- | --- |
+| Migration | chain (`down_revision` is head); downgrade mirrors upgrade; NOT NULL without server default; index without concurrently; type change or rename in one step; data backfill inside DDL; column dropped or renamed while old code runs (expand and contract); model and migration agree; ORM imported in the migration; deploy order and rollback path stated |
+| Domain logic | boundaries (at, one below, one above, zero, empty, negative); invariants per intermediate value, enforced on the combination not only the parts; rounding mode stated and consistent; Decimal only; naive datetimes; mutable defaults and shared module state; clock or config read inside logic; every public helper tested at its boundary |
+| Router | what runs before the handler and in what order; ownership scoping on every lookup, admin and customer paths not copied; response model is the allowlist, no dict of rows, no model shared across endpoints with different exposure; status codes and error mapping; pagination capped and stably ordered; no query building in the handler; sync work not inside `async def` |
+| Service | who commits (nobody here); side effects relative to the transaction; idempotency of every write and retry; partial failure leaves consistent state; state machine, not string compares; secrets in logs; injected collaborators; one responsibility per method, format details pushed out |
+| Repository and queries | bound parameters, never strings; N+1 in loops and serializers; session lifecycle (per request, never module level or cross-thread); check-then-insert without a constraint; missing index for the new access path; count by loading rows; pagination without a tiebreaker; commits |
+| Threads | shared state versus lock table; check-then-act; lock created per call; lock ordering; lazy singleton init; executor or timer lifecycle; daemon plus polled flag; sleep instead of Event; futures whose exceptions are never read |
+| asyncio | blocking call inside `async def`; missing await; `gather` without `return_exceptions`; unbounded `create_task`; check-then-act across an await; swallowed `CancelledError`; no timeout on external awaits; loop started inside a loop |
+| Spark batch | partition filter on every read, pushdown not defeated by a cast; overwrite scope; join type and duplicate keys; skew; cache placement and unpersist; explicit schema; small files; decimal precision; idempotent rerun |
+| Spark streaming | watermark on stateful ops; checkpoint per query and compatible with the change; `foreachBatch` idempotent on replay; exceptions not swallowed before commit; explicit schema; trigger and source options; event time not processing time |
+| Tests (any PR) | the risky path is exercised; boundaries, not comfortable values; asserts on outcomes, not mocks; no private state, sleep, or wall clock; a test that would still pass with the feature removed |
+| Any PR (Staff layer) | what outside the diff breaks (callers, response consumers, jobs reading the table, the checkpoint); deploy and rollback order; who needs to know; a risk-and-watch line in the summary |
+
+Layering rule in this codebase: reads may go router to repository; writes go router to service to repository; SQL lives only in the repository.
