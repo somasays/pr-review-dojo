@@ -2,7 +2,8 @@ from decimal import Decimal
 
 import pytest
 
-from app.domain.order_state import InvalidTransition
+from app.db.models import Order
+from app.domain.order_state import InvalidTransition, OrderStatus
 from app.services.config import Settings
 from app.services.notification import InMemorySender, NotificationService
 from app.services.order_service import CreateOrderCommand, OrderService
@@ -69,6 +70,27 @@ def test_lifecycle_notifications(db, seeded, service, sender):
         f"order-shipped:{order.id}",
     ]
     assert order.status == "delivered"
+
+
+def test_loyalty_credit_applied_for_repeat_customer(db, seeded, service, sender):
+    c = seeded["customer"]
+    history = Order(
+        customer_id=c.id,
+        idempotency_key="history-key",
+        status=OrderStatus.PAID,
+        currency="USD",
+        subtotal=Decimal("1000.00"),
+        total=Decimal("1000.00"),
+    )
+    db.add(history)
+    db.commit()
+
+    order = service.create(_cmd(c.id, key="key-00000003"))
+    db.commit()
+
+    assert order.loyalty_credit == Decimal("3.20")
+    assert order.total == Decimal("168.15")
+    assert any(m.dedupe_key.startswith(f"order-credit:{order.id}:") for m in sender.sent)
 
 
 def test_cancel_restores_stock_and_blocks_after_payment(db, seeded, service, sender):

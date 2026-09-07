@@ -109,6 +109,12 @@ class OrderRepository:
         stmt = select(Order).where(Order.status == status).order_by(Order.id).limit(limit)
         return self.session.scalars(stmt).all()
 
+    def list_paid_for_customer(self, customer_id: int) -> Sequence[Order]:
+        stmt = select(Order).where(
+            Order.customer_id == customer_id, Order.status == OrderStatus.PAID
+        )
+        return self.session.scalars(stmt).all()
+
     def created_between(self, start: datetime, end: datetime) -> Sequence[Order]:
         stmt = (
             select(Order)

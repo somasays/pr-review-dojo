@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from app.domain.dates import utcnow
 from app.services.config import Settings, get_settings
 from app.services.retry import RetryPolicy, retry
 
@@ -82,5 +83,15 @@ class NotificationService:
                 subject=f"Order {order_id} cancelled",
                 body="Your order was cancelled. Any payment will be refunded.",
                 dedupe_key=f"order-cancelled:{order_id}",
+            )
+        )
+
+    def loyalty_credit_applied(self, email: str, order_id: int, credit: str) -> None:
+        self._deliver(
+            Message(
+                to=email,
+                subject=f"Order {order_id} loyalty credit applied",
+                body=f"You saved {credit} in loyalty credit on this order.",
+                dedupe_key=f"order-credit:{order_id}:{utcnow().isoformat()}",
             )
         )

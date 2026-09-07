@@ -65,6 +65,7 @@ class OrderOut(BaseModel):
     tax: Decimal
     total: Decimal
     discount_code: str | None
+    loyalty_credit: Decimal
     created_at: datetime
     items: list[OrderItemOut]
 
