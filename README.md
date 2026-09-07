@@ -4,6 +4,9 @@ A small order-management system used as the base for code review and rewrite
 interview practice. Exercises are pull requests against this codebase. See
 `CLAUDE.md` for how grading works and `exercises/` for the catalog.
 
+A second, self-contained practice codebase lives at `sandbox/rooms/`; see
+`sandbox/rooms/README.md` for what it is and its own conventions.
+
 ## Layout
 
 | Package | What it does |
