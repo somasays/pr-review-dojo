@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -109,11 +110,12 @@ class OrderRepository:
         stmt = select(Order).where(Order.status == status).order_by(Order.id).limit(limit)
         return self.session.scalars(stmt).all()
 
-    def list_paid_for_customer(self, customer_id: int) -> Sequence[Order]:
-        stmt = select(Order).where(
+    def paid_total_for_customer(self, customer_id: int) -> Decimal:
+        stmt = select(func.coalesce(func.sum(Order.total), 0)).where(
             Order.customer_id == customer_id, Order.status == OrderStatus.PAID
         )
-        return self.session.scalars(stmt).all()
+        total = self.session.scalar(stmt)
+        return Decimal(total) if total is not None else Decimal("0")
 
     def created_between(self, start: datetime, end: datetime) -> Sequence[Order]:
         stmt = (

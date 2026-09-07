@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Order, OrderItem
 from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
 from app.domain.loyalty import loyalty_credit
+from app.domain.money import Money
 from app.domain.order_state import OrderStatus, is_cancellable, transition
 from app.domain.pricing import tax_rate_for
 from app.services.notification import NotificationService
@@ -56,8 +57,8 @@ class OrderService:
         products = self.products.by_skus([i.sku for i in cmd.items])
         q = self.pricing.quote(cmd.items, products, cmd.discount_codes, customer.region)
 
-        paid_orders = self.orders.list_paid_for_customer(customer.id)
-        credit = loyalty_credit(paid_orders, q.taxable)
+        lifetime_spend = Money(self.orders.paid_total_for_customer(customer.id), q.taxable.currency)
+        credit = loyalty_credit(lifetime_spend, q.taxable)
         taxable_after_credit = q.taxable - credit
         tax = taxable_after_credit.percent(tax_rate_for(customer.region))
         total = taxable_after_credit + tax
