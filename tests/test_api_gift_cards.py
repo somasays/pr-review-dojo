@@ -11,7 +11,7 @@ def test_get_balance_returns_code_and_amount(client, db):
     db.add(card)
     db.commit()
 
-    r = client.get("/gift-cards/GIFT100/balance")
+    r = client.get("/gift-cards/GIFT100/balance", headers=H)
     assert r.status_code == 200
     body = r.json()
     assert body["code"] == "GIFT100"
@@ -19,7 +19,7 @@ def test_get_balance_returns_code_and_amount(client, db):
 
 
 def test_unknown_code_returns_404(client):
-    r = client.get("/gift-cards/NOPE/balance")
+    r = client.get("/gift-cards/NOPE/balance", headers=H)
     assert r.status_code == 404
 
 
@@ -43,5 +43,5 @@ def test_create_order_redeems_gift_card(client, db):
     assert Decimal(body["gift_card_redeemed"]) == Decimal(body["total"])
     assert Decimal(body["remaining_charge"]) == Decimal("0.00")
 
-    balance = client.get("/gift-cards/BIGCARD/balance").json()
+    balance = client.get("/gift-cards/BIGCARD/balance", headers=H).json()
     assert Decimal(balance["balance"]) == Decimal("500.00") - Decimal(body["gift_card_redeemed"])
