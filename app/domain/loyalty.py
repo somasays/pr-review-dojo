@@ -26,7 +26,7 @@ LOYALTY_TIERS: tuple[tuple[Money, Decimal], ...] = (
 
 def _rate_for(lifetime_spend: Money, tiers: tuple[tuple[Money, Decimal], ...]) -> Decimal:
     for minimum, rate in tiers:
-        if minimum < lifetime_spend:
+        if minimum <= lifetime_spend:
             return rate
     return Decimal("0")
 
