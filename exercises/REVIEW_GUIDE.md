@@ -77,18 +77,93 @@ Sort misses into "did not look there" and "looked and did not see". The first ki
 
 ## Failure modes by change type
 
-| The PR touches | Look for |
-| --- | --- |
-| Migration | chain (`down_revision` is head); downgrade mirrors upgrade; NOT NULL without server default; index without concurrently; type change or rename in one step; data backfill inside DDL; column dropped or renamed while old code runs (expand and contract); model and migration agree; ORM imported in the migration; deploy order and rollback path stated |
-| Domain logic | boundaries (at, one below, one above, zero, empty, negative); invariants per intermediate value, enforced on the combination not only the parts; rounding mode stated and consistent; Decimal only; naive datetimes; mutable defaults and shared module state; clock or config read inside logic; every public helper tested at its boundary |
-| Router | what runs before the handler and in what order; ownership scoping on every lookup, admin and customer paths not copied; response model is the allowlist, no dict of rows, no model shared across endpoints with different exposure; status codes and error mapping; pagination capped and stably ordered; no query building in the handler; sync work not inside `async def` |
-| Service | who commits (nobody here); side effects relative to the transaction; idempotency of every write and retry; partial failure leaves consistent state; state machine, not string compares; secrets in logs; injected collaborators; one responsibility per method, format details pushed out |
-| Repository and queries | bound parameters, never strings; N+1 in loops and serializers; session lifecycle (per request, never module level or cross-thread); check-then-insert without a constraint; missing index for the new access path; count by loading rows; pagination without a tiebreaker; commits |
-| Threads | shared state versus lock table; check-then-act; lock created per call; lock ordering; lazy singleton init; executor or timer lifecycle; daemon plus polled flag; sleep instead of Event; futures whose exceptions are never read |
-| asyncio | blocking call inside `async def`; missing await; `gather` without `return_exceptions`; unbounded `create_task`; check-then-act across an await; swallowed `CancelledError`; no timeout on external awaits; loop started inside a loop |
-| Spark batch | partition filter on every read, pushdown not defeated by a cast; overwrite scope; join type and duplicate keys; skew; cache placement and unpersist; explicit schema; small files; decimal precision; idempotent rerun |
-| Spark streaming | watermark on stateful ops; checkpoint per query and compatible with the change; `foreachBatch` idempotent on replay; exceptions not swallowed before commit; explicit schema; trigger and source options; event time not processing time |
-| Tests (any PR) | the risky path is exercised; boundaries, not comfortable values; asserts on outcomes, not mocks; no private state, sleep, or wall clock; a test that would still pass with the feature removed |
-| Any PR (Staff layer) | what outside the diff breaks (callers, response consumers, jobs reading the table, the checkpoint); deploy and rollback order; who needs to know; a risk-and-watch line in the summary |
+### Migration
+- Chain and reversibility
+  - `down_revision` is the current head, no second head
+  - `downgrade` mirrors `upgrade` in reverse, drops what was added
+- Locks on live tables
+  - NOT NULL column without a server default
+  - index without concurrently, type change, rename in one step
+- Deploy safety
+  - expand and contract: old code runs on the new schema and back
+  - data backfill kept out of the DDL migration
+  - deploy and rollback order stated in the description
+- Consistency
+  - `models.py` matches the migration (columns, index names, timezone)
+  - no ORM models imported inside the migration
+
+### Domain logic
+- Boundaries: at the threshold, one below, one above, zero, empty, negative
+- Invariants: stated per intermediate value, enforced on the combination not only the parts
+- Numbers: Decimal only, rounding mode stated and consistent
+- Time: timezone-aware, clock injected not read
+- State: no mutable defaults, no shared module state, no config read inside logic
+- Tests: every public helper tested at its boundary
+
+### Router
+- Before the handler: auth then guards, order matters
+- Ownership: every lookup scoped to the caller, admin and customer paths shared not copied
+- Response: model is the allowlist, no dict of rows, no model reused with different exposure
+- Contract: status codes and error mapping, pagination capped and stably ordered
+- Layering: call the repository or service, never build queries here
+- Runtime: no sync work inside `async def`
+
+### Service
+- Transaction: nobody commits here, the request owns it
+- Side effects: sends, holds, events placed relative to the commit
+- Idempotency: every write and every retry safe to repeat
+- Partial failure: state consistent when a middle step fails
+- Structure: state machine not string compares, collaborators injected, one responsibility per method, format details pushed out
+- Logs: no secrets
+
+### Repository and queries
+- Bound parameters, never strings
+- N+1 in loops and in serializers
+- Session lifecycle: per request, never module level, never cross-thread
+- Races: check-then-insert without a constraint
+- Access paths: index for the new query, count without loading rows, pagination with a tiebreaker
+- No commits
+
+### Threads
+- Shared state versus lock table, every touch under the same lock
+- Check-then-act, read-modify-write
+- Lock created per call, lock ordering across two locks
+- Lazy singleton init without a lock
+- Lifecycle: executor, timer, daemon plus polled flag, sleep instead of Event
+- Futures whose exceptions are never read
+
+### asyncio
+- Blocking call inside `async def`
+- Missing await, unbounded `create_task`
+- `gather` without `return_exceptions`
+- Check-then-act across an await
+- Swallowed `CancelledError`, no timeout on external awaits
+- Loop started from inside a loop
+
+### Spark batch
+- Reads: partition filter on every read, pushdown not defeated by a cast, explicit schema
+- Writes: overwrite scope is the partition, idempotent rerun, small files
+- Joins: type and duplicate keys, skew
+- Cache placement and unpersist
+- Decimal precision
+
+### Spark streaming
+- Watermark on every stateful operation
+- Checkpoint per query, compatible with the change
+- `foreachBatch` idempotent on replay, exceptions not swallowed before commit
+- Explicit schema, trigger and source options
+- Event time, not processing time
+
+### Tests, any PR
+- The risky path is exercised, at the boundaries
+- Asserts on outcomes, not on mocks
+- No private state, no sleep, no wall clock
+- Would still pass with the feature removed
+
+### Any PR, the Staff layer
+- What outside the diff breaks: callers, response consumers, jobs reading the table, the checkpoint
+- Deploy and rollback order
+- Who needs to know: ops, data, clients
+- A risk-and-watch line in the summary
 
 Layering rule in this codebase: reads may go router to repository; writes go router to service to repository; SQL lives only in the repository.
