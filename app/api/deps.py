@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Annotated
@@ -101,13 +102,17 @@ _sender = InMemorySender()
 # Process-wide counter for flash sale units sold, so every request thread and
 # the admin report see the same numbers.
 _sale_counter: SaleCounter | None = None
+_sale_counter_lock = threading.Lock()
 
 
 def get_sale_counter() -> SaleCounter:
     global _sale_counter
     if _sale_counter is None:
-        _sale_counter = SaleCounter()
-        _sale_counter.start()
+        with _sale_counter_lock:
+            if _sale_counter is None:
+                counter = SaleCounter()
+                counter.start()
+                _sale_counter = counter
     return _sale_counter
 
 

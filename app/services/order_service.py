@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -107,19 +108,19 @@ class OrderService:
         return order
 
     def _flash_sale_prices(
-        self, cmd: CreateOrderCommand, products: dict[str, Product]
+        self,
+        cmd: CreateOrderCommand,
+        products: dict[str, Product],
+        now: datetime | None = None,
     ) -> dict[str, Money]:
         """Sale price for each item whose SKU has an active flash sale."""
-        now = utcnow()
+        now = now or utcnow()
         overrides: dict[str, Money] = {}
         for item in cmd.items:
             sale = ACTIVE_SALES.get(item.sku)
             if sale is None or not sale.is_active(now):
                 continue
-            try:
-                self._check_sale_cap(sale, cmd.customer_id, item.quantity)
-            except SaleCapExceeded as exc:
-                log.warning("flash sale cap check failed: %s", exc)
+            self._check_sale_cap(sale, cmd.customer_id, item.quantity)
             product = products[item.sku]
             overrides[item.sku] = sale.sale_price(Money(product.unit_price, product.currency))
         return overrides

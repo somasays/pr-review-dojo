@@ -7,6 +7,7 @@ from app.api.schemas import OrderCreate, OrderOut, Page
 from app.db.models import Order
 from app.db.repositories import NotFound, OrderRepository
 from app.domain.order_state import InvalidTransition
+from app.services.flash_sales import SaleCapExceeded
 from app.services.order_service import CreateOrderCommand
 from app.services.pricing_service import (
     InsufficientStock,
@@ -30,7 +31,7 @@ def create_order(principal: CurrentPrincipal, body: OrderCreate, service: Orders
         return service.create(cmd)
     except (UnknownSku, UnknownDiscountCode) as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-    except InsufficientStock as exc:
+    except (InsufficientStock, SaleCapExceeded) as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
