@@ -11,7 +11,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from app.domain.dates import utcnow
 from app.services.config import Settings, get_settings
 from app.services.retry import RetryPolicy, retry
 
@@ -92,6 +91,6 @@ class NotificationService:
                 to=email,
                 subject=f"Order {order_id} loyalty credit applied",
                 body=f"You saved {credit} in loyalty credit on this order.",
-                dedupe_key=f"order-credit:{order_id}:{utcnow().isoformat()}",
+                dedupe_key=f"order-credit:{order_id}",
             )
         )

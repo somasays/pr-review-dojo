@@ -1,18 +1,16 @@
 """Loyalty credit: a small discount for returning customers at checkout.
 
-Pure functions over `Money` and the ORM rows the caller already has. The
-credit is tiered by how much a customer has spent on paid orders, capped so
-a single order never gets more than `MAX_CREDIT_PER_ORDER`, and applied
-after discount codes but before tax (see `OrderService.create`).
+Pure functions over `Money`. The credit is tiered by how much a customer
+has spent on paid orders, capped so a single order never gets more than
+`MAX_CREDIT_PER_ORDER`, and applied after discount codes but before tax
+(see `OrderService.create`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from decimal import Decimal
 
-from app.db.models import Order
-from app.domain.money import Money, sum_money
+from app.domain.money import Money
 
 MAX_CREDIT_PER_ORDER = Money.of("50.00")
 
@@ -24,27 +22,22 @@ LOYALTY_TIERS: tuple[tuple[Money, Decimal], ...] = (
 )
 
 
-def _rate_for(lifetime_spend: Money, tiers: tuple[tuple[Money, Decimal], ...]) -> Decimal:
-    for minimum, rate in tiers:
-        if minimum < lifetime_spend:
+def _rate_for(lifetime_spend: Money) -> Decimal:
+    for minimum, rate in LOYALTY_TIERS:
+        if minimum <= lifetime_spend:
             return rate
     return Decimal("0")
 
 
-def loyalty_credit(
-    paid_orders: Sequence[Order],
-    taxable: Money,
-    tiers: tuple[tuple[Money, Decimal], ...] = LOYALTY_TIERS,
-) -> Money:
-    """Return the loyalty credit for an order given the customer's paid history.
+def loyalty_credit(lifetime_spend: Money, taxable: Money) -> Money:
+    """Return the loyalty credit for an order given the customer's lifetime spend.
 
     `taxable` is the order's subtotal after discount codes, before tax. The
-    credit is a percentage of that amount, tiered by the customer's lifetime
-    spend across `paid_orders`, capped at `MAX_CREDIT_PER_ORDER`.
+    credit is a percentage of that amount, tiered by `lifetime_spend`, capped
+    at `MAX_CREDIT_PER_ORDER`.
     """
-    lifetime_spend = sum_money([Money(o.total, o.currency) for o in paid_orders], taxable.currency)
-    rate = _rate_for(lifetime_spend, tiers)
-    credit = Money(taxable.amount * rate / Decimal(100), taxable.currency)
+    rate = _rate_for(lifetime_spend)
+    credit = taxable.percent(rate)
     if MAX_CREDIT_PER_ORDER < credit:
         return MAX_CREDIT_PER_ORDER
     return credit
