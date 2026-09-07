@@ -38,10 +38,10 @@ echo "== hidden tests on $sol_ref (expect pass)"
 (cd "$tmp/sol" && "$py" -m pytest -q -p no:cacheprovider solutions_tests 2>&1 | tail -3) || { echo "FAIL: hidden tests fail on the solution branch"; exit 1; }
 
 echo "== full suite, ruff, mypy on $sol_ref"
-(cd "$tmp/sol" && "$py" -m pytest -q -p no:cacheprovider tests 2>&1 | tail -2) || { echo "FAIL: normal suite fails on the solution branch"; exit 1; }
+(cd "$tmp/sol" && "$py" -m pytest -q -p no:cacheprovider 2>&1 | tail -2) || { echo "FAIL: normal suite fails on the solution branch"; exit 1; }
 (cd "$tmp/sol" && "$py" -m ruff check . && "$py" -m ruff format --check . >/dev/null && "$py" -m mypy >/dev/null) || { echo "FAIL: lint or mypy on the solution branch"; exit 1; }
 
 echo "== normal suite on $ex_ref (expect pass, CI must stay green on the exercise PR)"
-(cd "$tmp/ex" && rm -rf solutions_tests && "$py" -m pytest -q -p no:cacheprovider tests 2>&1 | tail -2) || { echo "FAIL: normal suite fails on the exercise branch"; exit 1; }
+(cd "$tmp/ex" && rm -rf solutions_tests && "$py" -m pytest -q -p no:cacheprovider 2>&1 | tail -2) || { echo "FAIL: normal suite fails on the exercise branch"; exit 1; }
 (cd "$tmp/ex" && "$py" -m ruff check . && "$py" -m ruff format --check . >/dev/null && "$py" -m mypy >/dev/null) || { echo "FAIL: lint or mypy on the exercise branch"; exit 1; }
 echo "OK: exercise $n verified"
