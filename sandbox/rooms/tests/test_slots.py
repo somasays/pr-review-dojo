@@ -6,7 +6,13 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from sandbox.rooms.domain.slots import MIN_CHARGE_CENTS, Slot, price_cents, split_credit_cents
+from sandbox.rooms.domain.slots import (
+    MIN_CHARGE_CENTS,
+    Slot,
+    price_cents,
+    recurring_slots,
+    split_credit_cents,
+)
 
 
 def _dt(hour: int, minute: int = 0) -> datetime:
@@ -72,6 +78,21 @@ def test_price_cents_rejects_negative_rate() -> None:
     slot = Slot(_dt(9, 0), _dt(10, 0))
     with pytest.raises(ValueError, match="negative"):
         price_cents(slot, rate_cents_per_hour=-1, member=False)
+
+
+def test_recurring_slots_shifts_by_one_week() -> None:
+    first = Slot(_dt(9, 0), _dt(10, 0))
+    series = recurring_slots(first, weeks=3)
+    assert [s.start.day for s in series] == [8, 15, 22]
+    assert all(s.duration_minutes() == 60 for s in series)
+
+
+def test_recurring_slots_rejects_out_of_range_weeks() -> None:
+    first = Slot(_dt(9, 0), _dt(10, 0))
+    with pytest.raises(ValueError, match="between 1 and"):
+        recurring_slots(first, weeks=0)
+    with pytest.raises(ValueError, match="between 1 and"):
+        recurring_slots(first, weeks=9)
 
 
 def test_split_credit_cents_evenly() -> None:

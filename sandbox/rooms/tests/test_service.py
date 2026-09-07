@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.orm import Session
@@ -86,6 +86,20 @@ def test_book_recurring_creates_one_booking_per_week_with_credit(
     assert (starts[1] - starts[0]).days == 7
     # 2000 metered, 15% member discount -> 1700, minus a 250 share of the 1000 credit.
     assert all(b.price_cents == 1450 for b in bookings)
+
+
+def test_book_recurring_leaves_no_bookings_on_a_later_week_conflict(
+    service: BookingService, room: Room
+) -> None:
+    # Someone else already holds the third week's occurrence of the slot.
+    third_week = _slot(9, 10)
+    third_week = Slot(third_week.start + timedelta(weeks=2), third_week.end + timedelta(weeks=2))
+    service.book(room.id, "bea@example.com", third_week, member=False)
+
+    with pytest.raises(Conflict):
+        service.book_recurring(room.id, "ada@example.com", _slot(9, 10), weeks=4, member=False)
+
+    assert service.bookings.find_conflicts(room.id, _slot(9, 10)) == []
 
 
 def test_join_waitlist_records_holder(service: BookingService, room: Room) -> None:

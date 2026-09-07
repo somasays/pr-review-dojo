@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 
 HALF_HOUR = timedelta(minutes=30)
 WEEK = timedelta(days=7)
@@ -91,11 +90,13 @@ def split_credit_cents(credit_cents: int, count: int) -> list[int]:
     """Split a member's monthly credit evenly across `count` bookings.
 
     Every booking in a recurring series gets an equal share of the credit,
-    so a member does not have to redeem it one booking at a time.
+    and the shares always sum back to `credit_cents` exactly: the first
+    shares absorb the remainder cent by cent, same as `Money.allocate`
+    does in app/domain/money.py.
     """
     if credit_cents < 0:
         raise ValueError("credit_cents must not be negative")
     if count < 1:
         raise ValueError("count must be at least 1")
-    share = int(Decimal(credit_cents) / count)
-    return [share] * count
+    base, remainder = divmod(credit_cents, count)
+    return [base + 1 if i < remainder else base for i in range(count)]

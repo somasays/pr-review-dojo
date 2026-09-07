@@ -103,11 +103,27 @@ class WaitlistRepo:
         self.session.commit()
         return entry
 
-    def first_active(self, room_id: str) -> Waitlist | None:
-        """The earliest holder still waiting for an opening in this room."""
+    def list_for_room(self, room_id: str) -> Sequence[Waitlist]:
+        """Everyone still waiting for an opening in this room, oldest first."""
         stmt = (
             select(Waitlist)
             .where(Waitlist.room_id == room_id, Waitlist.fulfilled_at.is_(None))
+            .order_by(Waitlist.created_at)
+        )
+        return self.session.scalars(stmt).all()
+
+    def first_active_for_slot(
+        self, room_id: str, start: datetime, end: datetime
+    ) -> Waitlist | None:
+        """The earliest holder still waiting for this exact slot in this room."""
+        stmt = (
+            select(Waitlist)
+            .where(
+                Waitlist.room_id == room_id,
+                Waitlist.start == start,
+                Waitlist.end == end,
+                Waitlist.fulfilled_at.is_(None),
+            )
             .order_by(Waitlist.created_at)
             .limit(1)
         )

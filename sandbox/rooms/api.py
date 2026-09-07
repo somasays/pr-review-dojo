@@ -14,7 +14,6 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from sandbox.rooms.db import Booking, Waitlist, get_session_factory
@@ -82,7 +81,6 @@ class WaitlistJoin(BaseModel):
     start: datetime
     end: datetime
     member: bool = False
-    holder_email: str | None = None
 
 
 class BookingOut(BaseModel):
@@ -137,15 +135,19 @@ def _free_half_hours(day: date, booked: Sequence[Booking]) -> list[FreeSlotOut]:
 app = FastAPI(title="Rooms", version="0.1.0")
 
 
+def _reraise_as_http(exc: NotFound | Conflict) -> HTTPException:
+    if isinstance(exc, NotFound):
+        return HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+    return HTTPException(status.HTTP_409_CONFLICT, str(exc))
+
+
 @app.post("/bookings", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
 def create_booking(body: BookingCreate, holder_email: HolderEmail, service: Service) -> Booking:
     slot = Slot(body.start, body.end)
     try:
         return service.book(body.room_id, holder_email, slot, body.member)
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except Conflict as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except (NotFound, Conflict) as exc:
+        raise _reraise_as_http(exc) from exc
 
 
 @app.post(
@@ -159,10 +161,8 @@ def create_recurring_booking(
         return service.book_recurring(
             body.room_id, holder_email, first_slot, body.weeks, body.member
         )
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except Conflict as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except (NotFound, Conflict) as exc:
+        raise _reraise_as_http(exc) from exc
 
 
 @app.get("/bookings/{booking_id}", response_model=BookingOut)
@@ -190,10 +190,8 @@ def join_waitlist(
     room_id: str, body: WaitlistJoin, holder_email: HolderEmail, service: Service
 ) -> Waitlist:
     slot = Slot(body.start, body.end)
-    # A member can add a colleague who wants the same recurring slot.
-    effective_holder = body.holder_email or holder_email
     try:
-        return service.join_waitlist(room_id, effective_holder, slot, body.member)
+        return service.join_waitlist(room_id, holder_email, slot, body.member)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
@@ -202,12 +200,7 @@ def join_waitlist(
 def get_room_waitlist(
     room_id: str, _holder_email: HolderEmail, db: DbSession
 ) -> Sequence[Waitlist]:
-    stmt = (
-        select(Waitlist)
-        .where(Waitlist.room_id == room_id, Waitlist.fulfilled_at.is_(None))
-        .order_by(Waitlist.created_at)
-    )
-    return db.scalars(stmt).all()
+    return WaitlistRepo(db).list_for_room(room_id)
 
 
 @app.get("/rooms/{room_id}/availability", response_model=AvailabilityOut)

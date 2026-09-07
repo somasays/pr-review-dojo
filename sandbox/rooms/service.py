@@ -59,29 +59,37 @@ class BookingService:
     def book_recurring(
         self, room_id: str, holder_email: str, first_slot: Slot, weeks: int, member: bool
     ) -> list[Booking]:
-        """Book the same slot every week for `weeks` weeks, or none of them."""
+        """Book the same slot every week for `weeks` weeks, or none of them.
+
+        Every week's slot is checked for a conflict before any booking is
+        written. Each `BookingRepo.add` call commits on its own (repositories
+        here always do), so committing one booking before every slot in the
+        series is confirmed free would leave part of the series booked if a
+        later week conflicts.
+        """
         room = self.rooms.get(room_id)
         if room is None or not room.active:
             raise NotFound(f"room {room_id!r} not found or inactive")
         slots = recurring_slots(first_slot, weeks)
-        credit_cents = MEMBER_MONTHLY_CREDIT_CENTS if member else 0
-        shares = split_credit_cents(credit_cents, weeks)
-        bookings = []
-        for slot, share in zip(slots, shares, strict=True):
+        for slot in slots:
             if self.bookings.find_conflicts(room_id, slot):
                 raise Conflict(f"room {room_id!r} is already booked for {slot.start.isoformat()}")
-            price = max(price_cents(slot, room.rate_cents_per_hour, member) - share, 0)
-            booking = Booking(
-                id=str(uuid.uuid4()),
-                room_id=room_id,
-                holder_email=holder_email,
-                start=slot.start,
-                end=slot.end,
-                price_cents=price,
-                created_at=datetime.now(UTC),
+        credit_cents = MEMBER_MONTHLY_CREDIT_CENTS if member else 0
+        shares = split_credit_cents(credit_cents, weeks)
+        return [
+            self.bookings.add(
+                Booking(
+                    id=str(uuid.uuid4()),
+                    room_id=room_id,
+                    holder_email=holder_email,
+                    start=slot.start,
+                    end=slot.end,
+                    price_cents=max(price_cents(slot, room.rate_cents_per_hour, member) - share, 0),
+                    created_at=datetime.now(UTC),
+                )
             )
-            bookings.append(self.bookings.add(booking))
-        return bookings
+            for slot, share in zip(slots, shares, strict=True)
+        ]
 
     def cancel(self, booking_id: str, holder_email: str) -> Booking:
         booking = self.bookings.get(booking_id)
@@ -113,7 +121,9 @@ class BookingService:
 
     def _promote_waitlist(self, freed: Booking) -> Booking | None:
         """Book the first waiting holder into the slot a cancellation just freed."""
-        entry = self.waitlist.first_active(freed.room_id)
+        entry = self.waitlist.first_active_for_slot(
+            freed.room_id, _as_utc(freed.start), _as_utc(freed.end)
+        )
         if entry is None:
             return None
         room = self.rooms.get(freed.room_id)
