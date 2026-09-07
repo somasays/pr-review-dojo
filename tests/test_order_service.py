@@ -90,7 +90,7 @@ def test_loyalty_credit_applied_for_repeat_customer(db, seeded, service, sender)
 
     assert order.loyalty_credit == Decimal("3.20")
     assert order.total == Decimal("168.15")
-    assert any(m.dedupe_key.startswith(f"order-credit:{order.id}:") for m in sender.sent)
+    assert any(m.dedupe_key == f"order-credit:{order.id}" for m in sender.sent)
 
 
 def test_cancel_restores_stock_and_blocks_after_payment(db, seeded, service, sender):
