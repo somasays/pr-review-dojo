@@ -130,15 +130,14 @@ class OrderService:
 
     def cancel(self, order_id: int) -> Order:
         order = self.orders.get(order_id)
-        already_cancelled = order.status == OrderStatus.CANCELLED
-        if not already_cancelled and not is_cancellable(OrderStatus(order.status)):
+        if order.status == OrderStatus.CANCELLED:
+            return order
+        if not is_cancellable(OrderStatus(order.status)):
             # Let the state machine raise the descriptive error.
             transition(OrderStatus(order.status), OrderStatus.CANCELLED)
         log.info("cancelling order %s (loyalty_credit=%s)", order.id, order.loyalty_credit)
         for item in order.items:
             item.product.stock += item.quantity
-        if already_cancelled:
-            return order
         self._move(order, OrderStatus.CANCELLED)
         self.notifications.order_cancelled(order.customer.email, order.id)
         return order
