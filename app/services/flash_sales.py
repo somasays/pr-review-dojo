@@ -81,5 +81,5 @@ class SaleCounter:
         while not self._stop_event.wait(self._sweep_interval):
             now = datetime.now(tz=UTC)
             for sku, sale in ACTIVE_SALES.items():
-                if now > sale.ends_at:
+                if not sale.is_active(now):
                     self.reset(sku)
