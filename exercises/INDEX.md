@@ -34,3 +34,4 @@
 | 30 | test | spark_streaming | hard | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/72) | - | | |
 | 31 | test | concurrency | hard | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/74) | - | | |
 | 32 | test | rewrite:fastapi | rewrite | 2026-09-05 | [PR](https://github.com/somasays/pr-review-dojo/pull/70) | - | | |
+| 33 | teach | services | easy | 2026-09-07 | [PR](https://github.com/somasays/pr-review-dojo/pull/76) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/78) | | |
