@@ -39,7 +39,7 @@ def redeem(total: Money, balance: Money, *, min_remaining: Money | None = None) 
         )
     redeemed = total if total.amount <= balance.amount else balance
     remaining_charge = total - redeemed
-    remaining_balance = balance - total
+    remaining_balance = balance - redeemed
     return Redemption(
         redeemed=redeemed, remaining_charge=remaining_charge, remaining_balance=remaining_balance
     )
