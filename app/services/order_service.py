@@ -116,10 +116,7 @@ class OrderService:
             sale = ACTIVE_SALES.get(item.sku)
             if sale is None or not sale.is_active(now):
                 continue
-            try:
-                self._check_sale_cap(sale, cmd.customer_id, item.quantity)
-            except SaleCapExceeded as exc:
-                log.warning("flash sale cap check failed: %s", exc)
+            self._check_sale_cap(sale, cmd.customer_id, item.quantity)
             product = products[item.sku]
             overrides[item.sku] = sale.sale_price(Money(product.unit_price, product.currency))
         return overrides
