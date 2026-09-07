@@ -65,9 +65,10 @@ class SaleCounter:
         return self._sold_by_customer.get((sku, customer_id), 0)
 
     def record_purchase(self, sku: str, customer_id: int, quantity: int) -> None:
-        self._sold[sku] = self._sold.get(sku, 0) + quantity
-        key = (sku, customer_id)
-        self._sold_by_customer[key] = self._sold_by_customer.get(key, 0) + quantity
+        with self._lock:
+            self._sold[sku] = self._sold.get(sku, 0) + quantity
+            key = (sku, customer_id)
+            self._sold_by_customer[key] = self._sold_by_customer.get(key, 0) + quantity
 
     def reset(self, sku: str) -> None:
         """Clear the counters for a sale that has closed."""
