@@ -52,4 +52,4 @@ class FlashSale:
     def units_within_cap(self, already_purchased: int, quantity: int) -> bool:
         """True if buying `quantity` more units keeps the customer at or under
         the per-customer cap for this sale."""
-        return already_purchased + quantity < self.per_customer_unit_cap
+        return already_purchased + quantity <= self.per_customer_unit_cap

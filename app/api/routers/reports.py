@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from app.api.deps import AdminPrincipal, DbSession, SaleCounterDep
 from app.api.schemas import ActiveSaleOut, StatusCount
 from app.db.repositories import OrderRepository
+from app.domain.flash_sale import FlashSale
 from app.services.flash_sales import ACTIVE_SALES
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -27,21 +28,22 @@ def recent_total(db: DbSession, _admin: AdminPrincipal, days: int = 7) -> dict[s
     return {"days": days, "orders": len(rows), "total": str(total)}
 
 
+def format_active_sale(sku: str, sale: FlashSale, units_sold: int) -> ActiveSaleOut:
+    return ActiveSaleOut(
+        sku=sku,
+        percent_off=sale.percent_off,
+        floor_price=sale.floor_price.amount,
+        per_customer_unit_cap=sale.per_customer_unit_cap,
+        ends_at=sale.ends_at,
+        units_sold=units_sold,
+    )
+
+
 @router.get("/sales/active", response_model=list[ActiveSaleOut])
 def active_sales(_admin: AdminPrincipal, sale_counter: SaleCounterDep) -> list[ActiveSaleOut]:
     now = datetime.now(tz=UTC)
-    rows = []
-    for sku, sale in sorted(ACTIVE_SALES.items()):
-        if not sale.is_active(now):
-            continue
-        rows.append(
-            ActiveSaleOut(
-                sku=sku,
-                percent_off=sale.percent_off,
-                floor_price=sale.floor_price.amount,
-                per_customer_unit_cap=sale.per_customer_unit_cap,
-                ends_at=sale.ends_at,
-                units_sold=sale_counter.units_sold(sku),
-            )
-        )
-    return rows
+    return [
+        format_active_sale(sku, sale, sale_counter.units_sold(sku))
+        for sku, sale in sorted(ACTIVE_SALES.items())
+        if sale.is_active(now)
+    ]

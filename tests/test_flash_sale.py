@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -65,8 +64,7 @@ def test_checkout_applies_the_sale_price(db, seeded) -> None:
 
 def test_sale_counter_stops_its_background_thread() -> None:
     before = threading.active_count()
-    counter = SaleCounter(sweep_interval_seconds=0.05)
+    counter = SaleCounter(sweep_interval_seconds=30)
     counter.start()
-    time.sleep(0.1)  # give the closer thread a moment to start
-    counter.stop()
+    counter.stop()  # joins the thread, no sleep needed to know it is done
     assert threading.active_count() == before
