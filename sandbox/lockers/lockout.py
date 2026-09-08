@@ -13,7 +13,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from functools import lru_cache
 from os import environ
 
@@ -119,7 +119,7 @@ class LockoutTracker:
         remaining = seconds_remaining(until)
         if remaining <= 0:
             return None
-        locked_until_at = datetime.now(UTC) + timedelta(seconds=remaining)
+        locked_until_at = datetime.utcnow() + timedelta(seconds=remaining)
         return LockoutStatus(retry_after_seconds=remaining, locked_until=locked_until_at)
 
     def clear(self, locker_id: int) -> None:
