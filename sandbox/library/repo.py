@@ -115,6 +115,10 @@ class HoldRepo:
             hold.fulfilled_at = when
 
     def other_patron_holds(self, item_id: int, patron_id: int) -> bool:
-        """Whether some patron other than `patron_id` holds this item."""
-        stmt = select(Hold).where(Hold.item_id == item_id, Hold.patron_id != patron_id)
+        """Whether some patron other than `patron_id` has an active hold on this item."""
+        stmt = select(Hold).where(
+            Hold.item_id == item_id,
+            Hold.patron_id != patron_id,
+            Hold.fulfilled_at.is_(None),
+        )
         return self.session.scalar(stmt) is not None
