@@ -69,6 +69,12 @@ class BookingCreate(BaseModel):
     member: bool = False
 
 
+class BookingAmend(BaseModel):
+    start: datetime
+    end: datetime
+    member: bool = False
+
+
 class BookingOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -79,6 +85,11 @@ class BookingOut(BaseModel):
     end: datetime
     price_cents: int
     cancelled_at: datetime | None
+
+
+class BookingAmendOut(BaseModel):
+    booking: BookingOut
+    price_difference_cents: int
 
 
 class FreeSlotOut(BaseModel):
@@ -129,6 +140,25 @@ def get_booking(booking_id: str, _holder_email: HolderEmail, db: DbSession) -> B
     if booking is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "booking not found")
     return booking
+
+
+@app.patch("/bookings/{booking_id}/amend", response_model=BookingAmendOut)
+def amend_booking(
+    booking_id: str, body: BookingAmend, holder_email: HolderEmail, service: Service
+) -> BookingAmendOut:
+    try:
+        booking, price_difference_cents = service.amend(
+            booking_id, body.start, body.end, body.member
+        )
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except Conflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except NotAllowed as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+    return BookingAmendOut(
+        booking=BookingOut.model_validate(booking), price_difference_cents=price_difference_cents
+    )
 
 
 @app.delete("/bookings/{booking_id}", response_model=BookingOut)
