@@ -45,7 +45,7 @@ class BookingService:
         return self.bookings.add(booking)
 
     def amend(
-        self, booking_id: str, new_start: datetime, new_end: datetime, member: bool
+        self, booking_id: str, holder_email: str, new_slot: Slot, member: bool
     ) -> tuple[Booking, int]:
         """Move or extend an active booking to a new slot in the same room.
 
@@ -55,6 +55,8 @@ class BookingService:
         booking = self.bookings.get(booking_id)
         if booking is None or booking.cancelled_at is not None:
             raise NotFound(f"booking {booking_id!r} not found")
+        if booking.holder_email != holder_email:
+            raise NotAllowed("only the holder can amend this booking")
         room = self.rooms.get(booking.room_id)
         if room is None or not room.active:
             raise NotFound(f"room {booking.room_id!r} not found or inactive")
@@ -66,16 +68,14 @@ class BookingService:
         if not can_amend(now, current_start):
             raise NotAllowed("too close to the start of the booking to amend it")
 
-        new_slot = Slot(new_start, new_end)
-        new_price = price_cents(new_slot, room.rate_cents_per_hour, member)
-        old_price = booking.price_cents
-
-        updated = self.bookings.update_slot(booking_id, new_slot.start, new_slot.end, new_price)
-        assert updated is not None
-
         conflicts = self.bookings.find_conflicts_excluding(booking.room_id, new_slot, booking_id)
         if conflicts:
             raise Conflict(f"room {booking.room_id!r} is already booked for that slot")
+
+        new_price = price_cents(new_slot, room.rate_cents_per_hour, member)
+        old_price = booking.price_cents
+        updated = self.bookings.update_slot(booking_id, new_slot.start, new_slot.end, new_price)
+        assert updated is not None
 
         self.bookings.reset_reminder(booking_id)
         return updated, new_price - old_price

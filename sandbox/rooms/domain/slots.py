@@ -79,4 +79,4 @@ def can_amend(now: datetime, current_start: datetime) -> bool:
     Refused once the booking has started, and refused once fewer than
     AMEND_CUTOFF remain before the start.
     """
-    return current_start - now > AMEND_CUTOFF
+    return current_start - now >= AMEND_CUTOFF

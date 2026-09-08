@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from sandbox.rooms.domain.slots import MIN_CHARGE_CENTS, Slot, price_cents
+from sandbox.rooms.domain.slots import AMEND_CUTOFF, MIN_CHARGE_CENTS, Slot, can_amend, price_cents
 
 
 def _dt(hour: int, minute: int = 0) -> datetime:
@@ -72,3 +72,19 @@ def test_price_cents_rejects_negative_rate() -> None:
     slot = Slot(_dt(9, 0), _dt(10, 0))
     with pytest.raises(ValueError, match="negative"):
         price_cents(slot, rate_cents_per_hour=-1, member=False)
+
+
+def test_can_amend_true_well_before_the_start() -> None:
+    now = _dt(9, 0)
+    assert can_amend(now, now + timedelta(hours=2))
+
+
+def test_can_amend_boundary_is_inclusive_of_the_cutoff_itself() -> None:
+    now = _dt(9, 0)
+    assert can_amend(now, now + AMEND_CUTOFF)
+    assert not can_amend(now, now + AMEND_CUTOFF - timedelta(minutes=1))
+
+
+def test_can_amend_false_once_the_booking_has_started() -> None:
+    now = _dt(9, 0)
+    assert not can_amend(now, now - timedelta(minutes=1))
