@@ -13,6 +13,9 @@ A third, self-contained practice codebase lives at `sandbox/lockers/`; see
 A fourth, self-contained practice codebase lives at `sandbox/library/`; see
 `sandbox/library/README.md` for what it is and its own conventions.
 
+A fifth, self-contained practice codebase lives at `sandbox/expenses/`; see
+`sandbox/expenses/README.md` for what it is and its own conventions.
+
 ## Layout
 
 | Package | What it does |
