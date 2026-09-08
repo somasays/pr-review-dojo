@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+from collections.abc import Callable
 from datetime import datetime
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -124,20 +125,21 @@ class PickupService:
             return fee
 
 
-def _notify_redirect(parcel: Parcel, target_locker_id: int) -> None:
-    log.info(
-        "parcel %s redirected to locker %s, new code %s",
-        parcel.id,
-        target_locker_id,
-        parcel.pickup_code,
-    )
+Notifier = Callable[[Parcel], None]
+
+
+def _log_redirect(parcel: Parcel) -> None:
+    log.info("parcel %s redirected, new code %s", parcel.id, parcel.pickup_code)
 
 
 class RedirectService:
     """Move an undelivered parcel to a different locker at the same site."""
 
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+    def __init__(
+        self, session_factory: sessionmaker[Session], notifier: Notifier = _log_redirect
+    ) -> None:
         self.session_factory = session_factory
+        self.notifier = notifier
 
     def redirect(
         self,
@@ -190,5 +192,5 @@ class RedirectService:
             parcel.pickup_code = new_code
             parcel.redirect_count += 1
 
-            _notify_redirect(parcel, target_locker_id)
+            self.notifier(parcel)
             return parcel
