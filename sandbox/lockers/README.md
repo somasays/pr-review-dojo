@@ -7,6 +7,14 @@ that were never collected. This is a third, self-contained codebase used as
 a base for a different set of practice exercises than `app/` and
 `sandbox/rooms/`. It does not import anything from either of them.
 
+## Vocabulary
+
+- **Site**: a physical place (a station, a mall). It is a string on `Locker.site`; several lockers can share a site.
+- **Locker**: one bank of compartments standing at a site. A locker is a cabinet, not a door.
+- **Compartment**: one door in a bank, with a size (S, M, L) and an occupied flag. A parcel lives in exactly one compartment.
+- **Parcel**: what the courier deposits. It is found by locker plus pickup code; the code is unique among active parcels in that locker.
+- Moving a parcel "to a different locker" means freeing its compartment in one bank and occupying a compartment in another bank at the same site. Nothing moves on its own; the courier carries it.
+
 ## Layout
 
 | Module | What it does |

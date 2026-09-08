@@ -6,6 +6,14 @@ becomes free. This is a fourth, self-contained codebase used as a base for a
 different set of practice exercises than `app/`, `sandbox/rooms/`, and
 `sandbox/lockers/`. It does not import anything from any of them.
 
+## Vocabulary
+
+- **Patron**: a person who borrows. `Patron.blocked` is the only restriction on a patron.
+- **Item**: a title the library owns. `Item.copies` is how many physical copies exist. There is no copy entity; a copy is only ever "copies minus active loans" (`ItemRepo.available_copies`).
+- **Loan**: one copy out with one patron. Its truth is `Loan.status` (`active`, `returned`, `lost`); `returned_on` is a record of when, not a state. `Loan.renewals` counts how many times the due date was extended.
+- **Hold**: a place in the queue for the next free copy of an item. A hold is a reservation by a patron who does not have the item; it is not a loan and not a block. "Another patron holds the item" means an active `Hold` row by someone else, not that someone currently has a copy out.
+- **Dates versus datetimes**: loans live in calendar days (`checked_out_on`, `due_on`, `returned_on` are `date`); holds live in moments (`placed_at`, `fulfilled_at` are aware UTC `datetime`). Fine and due-date math is in days; hold ordering is in seconds. Never compare one with the other.
+
 ## Layout
 
 | Module | What it does |
