@@ -66,7 +66,6 @@ class ReverseLossResult:
 
 class LendingService:
     def __init__(self, session: Session) -> None:
-        self.session = session
         self.patrons = PatronRepo(session)
         self.items = ItemRepo(session)
         self.loans = LoanRepo(session)
@@ -161,12 +160,9 @@ class LendingService:
 
         fine = fine_for(loan.due_on, today, GRACE_DAYS, FINE_PER_DAY, FINE_CAP)
         fee = replacement_fee_for(item.replacement_cost, fine, REPLACEMENT_FEE_CAP)
-        item.copies -= 1
-        # Commit the copy reduction now, ahead of the status transition.
-        self.session.commit()
-
         loan.status = transition(LoanStatus(loan.status), LoanStatus.LOST).value
         loan.lost_on = today
+        item.copies -= 1
         return LostReportResult(loan=loan, fee=fee)
 
     def reverse_loss(self, loan_id: int, today: date) -> ReverseLossResult:
@@ -177,7 +173,7 @@ class LendingService:
         loan = self.loans.get(loan_id)
         if loan is None:
             raise NotFound(f"loan {loan_id} not found")
-        if loan.status != "lost":
+        if loan.status != LoanStatus.LOST.value:
             raise NotAllowed(f"loan {loan_id} is not lost")
         if loan.lost_on is None or not can_reverse_loss(loan.lost_on, today, REVERSAL_WINDOW_DAYS):
             raise NotAllowed(f"loan {loan_id} is outside the reversal window")
