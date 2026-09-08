@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from sandbox.lockers.db import Compartment, Locker
 from sandbox.lockers.domain.fit import Dimensions
+from sandbox.lockers.lockout import LockoutTracker
 from sandbox.lockers.service import DepositService, Expired, InvalidCode, NoSpace, PickupService
 
 SMALL = Dimensions(10, 10, 10)
@@ -21,8 +22,10 @@ def deposit_service(session_factory: sessionmaker[Session]) -> DepositService:
 
 
 @pytest.fixture
-def pickup_service(session_factory: sessionmaker[Session]) -> PickupService:
-    return PickupService(session_factory)
+def pickup_service(
+    session_factory: sessionmaker[Session], lockout_tracker: LockoutTracker
+) -> PickupService:
+    return PickupService(session_factory, lockout_tracker)
 
 
 def test_deposit_picks_smallest_fitting_compartment(

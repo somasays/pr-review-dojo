@@ -40,6 +40,26 @@ def test_pickup_with_wrong_code_is_not_found(client: TestClient, locker: Locker)
     assert resp.status_code == 404
 
 
+def test_pickup_locks_out_after_repeated_wrong_codes(client: TestClient, locker: Locker) -> None:
+    for _ in range(3):  # TEST_LOCKOUT_POLICY.max_attempts
+        client.post(f"/lockers/{locker.id}/pickup", json={"code": "000000"})
+
+    resp = client.post(f"/lockers/{locker.id}/pickup", json={"code": "000000"})
+    assert resp.status_code == 423
+    assert int(resp.headers["Retry-After"]) > 0
+
+
+def test_courier_can_clear_a_lockout(client: TestClient, locker: Locker) -> None:
+    for _ in range(3):  # TEST_LOCKOUT_POLICY.max_attempts
+        client.post(f"/lockers/{locker.id}/pickup", json={"code": "000000"})
+    assert client.post(f"/lockers/{locker.id}/pickup", json={"code": "000000"}).status_code == 423
+    assert client.post(f"/lockers/{locker.id}/lockout/clear").status_code == 401  # no courier key
+
+    cleared = client.post(f"/lockers/{locker.id}/lockout/clear", headers=AUTH)
+    assert cleared.status_code == 204
+    assert client.post(f"/lockers/{locker.id}/pickup", json={"code": "000000"}).status_code == 404
+
+
 def test_compartments_summary_reports_occupancy(client: TestClient, locker: Locker) -> None:
     client.post(f"/lockers/{locker.id}/parcels", json=DEPOSIT_BODY, headers=AUTH)
     resp = client.get(f"/lockers/{locker.id}/compartments", headers=AUTH)

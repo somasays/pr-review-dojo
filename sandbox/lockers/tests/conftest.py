@@ -11,8 +11,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from sandbox.lockers.db import Base, Compartment, Locker
+from sandbox.lockers.lockout import LockoutPolicy, LockoutTracker
 
 COURIER_KEY = "courier-test-key"
+
+TEST_LOCKOUT_POLICY = LockoutPolicy(
+    max_attempts=3, window_seconds=60, lockout_minutes=1, sweep_seconds=3600
+)
 
 
 @pytest.fixture
@@ -55,8 +60,18 @@ def locker(db: Session) -> Locker:
 
 
 @pytest.fixture
+def lockout_tracker() -> Iterator[LockoutTracker]:
+    tracker = LockoutTracker(TEST_LOCKOUT_POLICY)
+    yield tracker
+    tracker.stop(timeout=0.1)
+
+
+@pytest.fixture
 def client(
-    session_factory: sessionmaker[Session], locker: Locker, monkeypatch: pytest.MonkeyPatch
+    session_factory: sessionmaker[Session],
+    locker: Locker,
+    lockout_tracker: LockoutTracker,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[TestClient]:
     monkeypatch.setenv("LOCKERS_COURIER_KEYS", COURIER_KEY)
     from sandbox.lockers import api
@@ -71,8 +86,12 @@ def client(
         finally:
             session.close()
 
+    def _get_lockout_tracker() -> LockoutTracker:
+        return lockout_tracker
+
     api.app.dependency_overrides[api.get_session_factory_dep] = _get_session_factory
     api.app.dependency_overrides[api.get_db] = _get_db
+    api.app.dependency_overrides[api.get_lockout_tracker] = _get_lockout_tracker
     with TestClient(api.app) as test_client:
         yield test_client
     api.app.dependency_overrides.clear()
