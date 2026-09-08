@@ -7,6 +7,7 @@ datetime is rejected here, at the service boundary.
 
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime
 
@@ -14,8 +15,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from sandbox.lockers.db import Compartment, Parcel, ensure_naive_utc, unit_of_work
 from sandbox.lockers.domain.fit import Dimensions, Size, expires_at, fits, late_fee_cents
-from sandbox.lockers.lockout import LockoutTracker
+from sandbox.lockers.lockout import AlertDeliveryFailed, LockoutTracker
 from sandbox.lockers.repo import CompartmentRepo, ParcelRepo
+
+log = logging.getLogger(__name__)
 
 HOLD_HOURS = 72
 GRACE_HOURS = 24
@@ -128,7 +131,12 @@ class PickupService:
 
         # The unit of work above touched nothing for a wrong code and is
         # already closed; alert ops outside the transaction so a slow or
-        # flaky alert channel never holds a database connection open.
+        # flaky alert channel never holds a database connection open. A
+        # failed alert should not turn into a 500 for the caller: log it
+        # and let the pickup response report the lockout as normal.
         if newly_locked:
-            self._lockout.alert(locker_id)
+            try:
+                self._lockout.alert(locker_id)
+            except AlertDeliveryFailed as exc:
+                log.error("%s", exc)
         raise InvalidCode(f"no active parcel in locker {locker_id} with that code")

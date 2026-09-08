@@ -56,6 +56,10 @@ class AlertTransientError(Exception):
     """Raised by a notifier for a failure the caller should retry."""
 
 
+class AlertDeliveryFailed(Exception):
+    """Raised by `alert` when the bounded retry exhausts with no successful notify."""
+
+
 def seconds_remaining(deadline: float) -> int:
     """Whole seconds left before a monotonic deadline, floored at zero."""
     return max(0, int(deadline - time.monotonic()))
@@ -126,7 +130,11 @@ class LockoutTracker:
             self._last_seen.pop(locker_id, None)
 
     def alert(self, locker_id: int) -> None:
-        """Page ops once for a newly triggered lockout, with a bounded retry."""
+        """Page ops once for a newly triggered lockout, with a bounded retry.
+
+        Raises AlertDeliveryFailed if every attempt fails, so a caller can
+        observe and log the failure instead of it being silently lost.
+        """
         current = self.status(locker_id)
         if current is None:
             return
@@ -142,10 +150,8 @@ class LockoutTracker:
                     locker_id,
                     exc,
                 )
-        log.error(
-            "ops alert for locker %s could not be delivered after %d attempts",
-            locker_id,
-            _ALERT_ATTEMPTS,
+        raise AlertDeliveryFailed(
+            f"ops alert for locker {locker_id} not delivered after {_ALERT_ATTEMPTS} attempts"
         )
 
     def start(self) -> None:
