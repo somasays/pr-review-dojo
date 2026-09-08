@@ -38,3 +38,5 @@
 | 34 | teach | fastapi | easy | 2026-09-07 | [PR](https://github.com/somasays/pr-review-dojo/pull/79) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/81) | | |
 | 35 | teach | concurrency | medium | 2026-09-07 | [PR](https://github.com/somasays/pr-review-dojo/pull/82) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/84) | | |
 | 36 | test | sandbox | medium | 2026-09-07 | [PR](https://github.com/somasays/pr-review-dojo/pull/85) | - | | |
+| 37 | test | sandbox | medium | 2026-09-08 | [PR](https://github.com/somasays/pr-review-dojo/pull/87) | - | | |
+| 38 | teach | sandbox | medium | 2026-09-08 | [PR](https://github.com/somasays/pr-review-dojo/pull/89) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/91) | | |
