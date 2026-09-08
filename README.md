@@ -16,6 +16,9 @@ A fourth, self-contained practice codebase lives at `sandbox/library/`; see
 A fifth, self-contained practice codebase lives at `sandbox/expenses/`; see
 `sandbox/expenses/README.md` for what it is and its own conventions.
 
+A sixth, self-contained practice codebase lives at `sandbox/metering/`; see
+`sandbox/metering/README.md` for what it is and its own conventions.
+
 ## Layout
 
 | Package | What it does |
