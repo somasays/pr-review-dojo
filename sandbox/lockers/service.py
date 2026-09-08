@@ -175,7 +175,7 @@ class RedirectService:
                 raise InvalidCode(f"parcel {parcel.id} has no compartment")
             size = Size(old_compartment.size)
 
-            compartments.release(old_compartment.id)
+            compartments.set_occupied(old_compartment.id, False)
 
             new_compartment = compartments.free_by_size(target_locker_id, size)
             if new_compartment is None:
