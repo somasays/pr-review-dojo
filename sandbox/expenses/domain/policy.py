@@ -69,6 +69,11 @@ def convert(amount: Decimal, rate: Decimal, precision: int) -> Decimal:
     return (amount * rate).quantize(quantum, rounding=ROUND_HALF_UP)
 
 
+class LineOutcome(Enum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 @dataclass(frozen=True, slots=True)
 class LineRejection:
     line_id: str

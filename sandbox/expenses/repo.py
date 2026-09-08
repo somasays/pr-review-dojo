@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from sandbox.expenses.db import Claim, ClaimLine, Employee, PayoutBatch
-from sandbox.expenses.domain.policy import Category, ClaimStatus
+from sandbox.expenses.domain.policy import Category, ClaimStatus, LineOutcome
 
 _CENTS = Decimal("0.01")
 
@@ -94,7 +94,7 @@ class ClaimRepo:
                 Claim.employee_id == employee_id,
                 Claim.id != exclude_claim_id,
                 Claim.status.in_([ClaimStatus.APPROVED.value, ClaimStatus.PAID.value]),
-                ClaimLine.outcome == "approved",
+                ClaimLine.outcome == LineOutcome.APPROVED.value,
                 ClaimLine.category == category.value,
                 ClaimLine.incurred_on >= start,
                 ClaimLine.incurred_on <= end,

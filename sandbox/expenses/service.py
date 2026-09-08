@@ -19,6 +19,7 @@ from sandbox.expenses.db import Claim, ClaimLine, PayoutBatch, ensure_aware_utc,
 from sandbox.expenses.domain.policy import (
     Category,
     ClaimStatus,
+    LineOutcome,
     LineRejection,
     PolicyLimit,
     claim_outcome,
@@ -177,13 +178,14 @@ class ClaimService:
                 raise NotAllowed("an approver may not decide their own claim")
 
             if not rejected_lines:
+                outcome = LineOutcome.APPROVED if approve else LineOutcome.REJECTED
                 for line in claim.lines:
-                    if approve:
-                        line.outcome = "approved"
-                    else:
-                        line.outcome = "rejected"
+                    line.outcome = outcome.value
+                    if outcome is LineOutcome.REJECTED:
                         line.rejection_reason = reason
-                approved_lines = [line for line in claim.lines if line.outcome == "approved"]
+                approved_lines = [
+                    line for line in claim.lines if line.outcome == LineOutcome.APPROVED.value
+                ]
                 claim.payable_total = sum((line.amount for line in approved_lines), Decimal("0.00"))
             else:
                 rejected_by_id = {r.line_id: r.reason for r in rejected_lines}
@@ -195,11 +197,13 @@ class ClaimService:
                     )
                 for line in claim.lines:
                     if line.id in rejected_by_id:
-                        line.outcome = "rejected"
+                        line.outcome = LineOutcome.REJECTED.value
                         line.rejection_reason = rejected_by_id[line.id]
                     else:
-                        line.outcome = "approved"
-                approved_lines = [line for line in claim.lines if line.outcome == "approved"]
+                        line.outcome = LineOutcome.APPROVED.value
+                approved_lines = [
+                    line for line in claim.lines if line.outcome == LineOutcome.APPROVED.value
+                ]
                 claim.payable_total = payable_total([line.amount for line in approved_lines])
 
             approved_amounts = [line.amount for line in approved_lines]
