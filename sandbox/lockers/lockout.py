@@ -60,9 +60,9 @@ class AlertDeliveryFailed(Exception):
     """Raised by `alert` when the bounded retry exhausts with no successful notify."""
 
 
-def seconds_remaining(deadline: float) -> int:
+def seconds_remaining(deadline: float, now: float) -> int:
     """Whole seconds left before a monotonic deadline, floored at zero."""
-    return max(0, int(deadline - time.monotonic()))
+    return max(0, int(deadline - now))
 
 
 AlertNotifier = Callable[[int, datetime], None]
@@ -116,7 +116,7 @@ class LockoutTracker:
             until = self._locked_until.get(locker_id)
         if until is None:
             return None
-        remaining = seconds_remaining(until)
+        remaining = seconds_remaining(until, self._clock())
         if remaining <= 0:
             return None
         locked_until_at = datetime.utcnow() + timedelta(seconds=remaining)
