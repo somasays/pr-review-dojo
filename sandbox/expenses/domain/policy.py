@@ -69,14 +69,25 @@ def convert(amount: Decimal, rate: Decimal, precision: int) -> Decimal:
     return (amount * rate).quantize(quantum, rounding=ROUND_HALF_UP)
 
 
+class LineOutcome(Enum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+@dataclass(frozen=True, slots=True)
+class LineRejection:
+    line_id: str
+    reason: str
+
+
 def payable_total(approved_amounts: Sequence[Decimal]) -> Decimal:
     """Sum of the approved line amounts on a claim, quantized to cents.
 
     Rejected lines are never passed in; a claim with no approved lines has
     a payable total of zero.
     """
-    cents = sum((amount * 100 for amount in approved_amounts), Decimal("0"))
-    return cents.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    total = sum(approved_amounts, Decimal("0.00"))
+    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class ClaimStatus(Enum):
@@ -118,6 +129,6 @@ def claim_outcome(approved_line_count: int, total_line_count: int) -> ClaimStatu
     """The status a decided claim lands in: rejected only when every line on
     it was rejected, approved when at least one line survives.
     """
-    if approved_line_count < total_line_count:
+    if approved_line_count == 0:
         return ClaimStatus.REJECTED
     return ClaimStatus.APPROVED

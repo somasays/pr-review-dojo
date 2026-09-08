@@ -19,6 +19,8 @@ from sandbox.expenses.db import Claim, ClaimLine, PayoutBatch, ensure_aware_utc,
 from sandbox.expenses.domain.policy import (
     Category,
     ClaimStatus,
+    LineOutcome,
+    LineRejection,
     PolicyLimit,
     claim_outcome,
     line_violations,
@@ -144,16 +146,17 @@ class ClaimService:
         claim_id: str,
         approve: bool,
         reason: str | None,
-        rejected_lines: Sequence[tuple[str, str]] | None = None,
+        rejected_lines: Sequence[LineRejection] | None = None,
     ) -> Claim:
         """Approve or reject a submitted claim, in whole or line by line.
 
-        Approving with `rejected_lines` (line id, reason pairs) marks those
-        lines rejected and every other line approved; the claim's payable
-        total is the sum of the approved lines, and the claim itself lands
-        on rejected only when every line ends up rejected. An approver may
-        not decide a claim they filed themselves. Repeating the same
-        decision from the same approver returns the claim unchanged."""
+        Approving with `rejected_lines` marks those lines rejected, each
+        with its own reason, and every other line approved; the claim's
+        payable total is the sum of the approved lines, and the claim
+        itself lands on rejected only when every line ends up rejected. An
+        approver may not decide a claim they filed themselves. Repeating
+        the same decision from the same approver returns the claim
+        unchanged."""
         if not approve and not reason:
             raise PolicyViolation("a reason is required to reject a claim")
 
@@ -170,20 +173,22 @@ class ClaimService:
                     return claim
                 raise NotAllowed(f"claim {claim_id} is not submitted")
 
+            owner = employees.get(claim.employee_id)
+            if owner is not None and owner.email == approver_email:
+                raise NotAllowed("an approver may not decide their own claim")
+
             if not rejected_lines:
-                owner = employees.get(claim.employee_id)
-                if owner is not None and owner.email == approver_email:
-                    raise NotAllowed("an approver may not decide their own claim")
+                outcome = LineOutcome.APPROVED if approve else LineOutcome.REJECTED
                 for line in claim.lines:
-                    if approve:
-                        line.outcome = "approved"
-                    else:
-                        line.outcome = "rejected"
+                    line.outcome = outcome.value
+                    if outcome is LineOutcome.REJECTED:
                         line.rejection_reason = reason
-                approved_lines = [line for line in claim.lines if line.outcome == "approved"]
+                approved_lines = [
+                    line for line in claim.lines if line.outcome == LineOutcome.APPROVED.value
+                ]
                 claim.payable_total = sum((line.amount for line in approved_lines), Decimal("0.00"))
             else:
-                rejected_by_id = dict(rejected_lines)
+                rejected_by_id = {r.line_id: r.reason for r in rejected_lines}
                 known_ids = {line.id for line in claim.lines}
                 unknown_ids = set(rejected_by_id) - known_ids
                 if unknown_ids:
@@ -192,11 +197,13 @@ class ClaimService:
                     )
                 for line in claim.lines:
                     if line.id in rejected_by_id:
-                        line.outcome = "rejected"
+                        line.outcome = LineOutcome.REJECTED.value
                         line.rejection_reason = rejected_by_id[line.id]
                     else:
-                        line.outcome = "approved"
-                approved_lines = [line for line in claim.lines if line.outcome == "approved"]
+                        line.outcome = LineOutcome.APPROVED.value
+                approved_lines = [
+                    line for line in claim.lines if line.outcome == LineOutcome.APPROVED.value
+                ]
                 claim.payable_total = payable_total([line.amount for line in approved_lines])
 
             approved_amounts = [line.amount for line in approved_lines]
@@ -207,8 +214,8 @@ class ClaimService:
                     key = (Category(line.category), line.incurred_on.year, line.incurred_on.month)
                     month_new_totals[key] = month_new_totals.get(key, Decimal("0.00")) + line.amount
                 for (category, year, month), new_amount in month_new_totals.items():
-                    existing_total = claims.month_total_for(
-                        claim.employee_id, category, year, month
+                    existing_total = claims.approved_month_total_for(
+                        claim.employee_id, category, year, month, exclude_claim_id=claim.id
                     )
                     if not month_total_ok(existing_total, new_amount, self.limits.get(category)):
                         raise PolicyViolation(

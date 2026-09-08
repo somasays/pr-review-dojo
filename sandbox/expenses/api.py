@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, sessionmaker
 
 from sandbox.expenses.db import Claim, PayoutBatch, get_session_factory
-from sandbox.expenses.domain.policy import Category
+from sandbox.expenses.domain.policy import Category, LineRejection
 from sandbox.expenses.repo import ClaimRepo, EmployeeRepo
 from sandbox.expenses.service import (
     ClaimService,
@@ -213,7 +213,9 @@ def get_claim(claim_id: str, identity: Identity, db: DbSession) -> Claim:
 def decide_claim(
     claim_id: str, body: DecisionIn, approver_email: ApproverEmail, service: ClaimServiceDep
 ) -> Claim:
-    rejected_lines = [(line.line_id, line.reason) for line in body.rejected_lines] or None
+    rejected_lines = [
+        LineRejection(line.line_id, line.reason) for line in body.rejected_lines
+    ] or None
     try:
         return service.decide(approver_email, claim_id, body.approve, body.reason, rejected_lines)
     except NotFound as exc:
