@@ -14,7 +14,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from sandbox.library.db import Hold, Loan, ensure_aware_utc
-from sandbox.library.domain.lending import LoanStatus, due_date, fine_for, transition
+from sandbox.library.domain.lending import LoanStatus, can_renew, due_date, fine_for, transition
 from sandbox.library.repo import HoldRepo, ItemRepo, LoanRepo, PatronRepo
 
 LOAN_DAYS = 14
@@ -45,7 +45,6 @@ class ReturnResult:
 
 class LendingService:
     def __init__(self, session: Session) -> None:
-        self.session = session
         self.patrons = PatronRepo(session)
         self.items = ItemRepo(session)
         self.loans = LoanRepo(session)
@@ -121,21 +120,19 @@ class LendingService:
             raise NotFound(f"loan {loan_id} not found")
         if loan.patron_id != patron.id:
             raise NotAllowed(f"loan {loan_id} does not belong to {patron_email!r}")
-        if loan.status == "lost":
+        if loan.status == LoanStatus.LOST.value:
             raise NotAllowed(f"loan {loan_id} is lost and cannot be renewed")
         if loan.status == LoanStatus.RETURNED.value:
             raise NotAllowed(f"loan {loan_id} has already been returned")
-        if loan.renewals > MAX_RENEWALS:
+        if self.holds.other_patron_holds(loan.item_id, patron.id):
+            raise NotAllowed(f"item {loan.item_id} is held for another patron")
+        if not can_renew(loan.renewals, MAX_RENEWALS, has_hold=False):
             raise NotAllowed(f"loan {loan_id} has reached the maximum number of renewals")
 
         fine_so_far = fine_for(loan.due_on, today, GRACE_DAYS, FINE_PER_DAY, FINE_CAP)
         loan.frozen_fine = loan.frozen_fine + fine_so_far
         loan.due_on = due_date(loan.due_on, LOAN_DAYS, WEEKENDS_EXCLUDED)
         loan.renewals += 1
-        self.session.commit()
-
-        if self.holds.other_patron_holds(loan.item_id, patron.id):
-            raise NotAllowed(f"item {loan.item_id} is held for another patron")
         return loan
 
     def place_hold(self, patron_email: str, item_id: int, now: datetime) -> Hold:

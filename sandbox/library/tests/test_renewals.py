@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from sandbox.library.db import Item, Patron
 from sandbox.library.domain.lending import LoanStatus
-from sandbox.library.service import LendingService, NotAllowed
+from sandbox.library.service import MAX_RENEWALS, LendingService, NotAllowed
 from sandbox.library.tests.conftest import PATRON_KEY
 
 
@@ -59,6 +59,22 @@ def test_renew_refused_for_lost_loan(db: Session, seeded: dict[str, Patron | Ite
     loan = service.checkout(alice.email, book.id, date(2024, 1, 1))
     loan.status = LoanStatus.LOST.value
     db.flush()
+
+    with pytest.raises(NotAllowed):
+        service.renew_loan(loan.id, alice.email, date(2024, 1, 10))
+
+
+def test_renew_respects_the_maximum_renewal_count(
+    db: Session, seeded: dict[str, Patron | Item]
+) -> None:
+    """MAX_RENEWALS renewals succeed; the next one is refused."""
+    service = LendingService(db)
+    alice, book = seeded["alice"], seeded["book"]
+    loan = service.checkout(alice.email, book.id, date(2024, 1, 1))
+
+    for _ in range(MAX_RENEWALS):
+        service.renew_loan(loan.id, alice.email, date(2024, 1, 10))
+    assert loan.renewals == MAX_RENEWALS
 
     with pytest.raises(NotAllowed):
         service.renew_loan(loan.id, alice.email, date(2024, 1, 10))
