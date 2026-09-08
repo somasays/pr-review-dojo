@@ -11,6 +11,7 @@ from sandbox.metering.domain.tariff import (
     Band,
     InvalidReading,
     Tariff,
+    adjustment_amount,
     charge_for,
     consumption,
     period_days,
@@ -64,3 +65,8 @@ def test_period_days_half_open() -> None:
     assert period_days(date(2026, 1, 1), date(2026, 2, 1)) == 31
     with pytest.raises(ValueError):
         period_days(date(2026, 2, 1), date(2026, 1, 1))
+
+
+def test_adjustment_amount_is_recomputed_minus_original() -> None:
+    assert adjustment_amount(Decimal("36.00"), Decimal("46.00")) == Decimal("10.00")
+    assert adjustment_amount(Decimal("46.00"), Decimal("36.00")) == Decimal("-10.00")

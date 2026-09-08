@@ -41,6 +41,27 @@ def test_correction_issues_an_adjustment_for_the_affected_bill(
     assert adjustments[0].amount != Decimal("0.00")
 
 
+def test_correction_exactly_at_period_end_does_not_affect_that_period(
+    db: Session, seeded: dict[str, object]
+) -> None:
+    reading_service = ReadingService(db)
+    billing = BillingService(db)
+    start = EPOCH
+    end = EPOCH + timedelta(days=30)
+    reading_service.submit(READER_EMAIL, METER_SERIAL, start, Decimal("0.000"), "actual")
+    reading_service.submit(
+        READER_EMAIL, METER_SERIAL, start + timedelta(days=20), Decimal("100.000"), "actual"
+    )
+    billing.generate(CUSTOMER_EMAIL, start.date(), end.date(), TARIFF)
+
+    # A reading taken exactly at period_end belongs to the *next* period,
+    # per the half-open [start, end) convention, not this one.
+    boundary = reading_service.submit(READER_EMAIL, METER_SERIAL, end, Decimal("120.000"), "actual")
+    corrected = reading_service.correct(READER_EMAIL, boundary.id, Decimal("130.000"))
+
+    assert billing.apply_correction(READER_EMAIL, corrected.id, TARIFF) == []
+
+
 def test_reader_can_trigger_the_adjustment_endpoint(
     client: TestClient, seeded: dict[str, object]
 ) -> None:

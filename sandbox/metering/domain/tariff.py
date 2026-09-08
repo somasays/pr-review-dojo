@@ -79,7 +79,7 @@ def adjustment_amount(original_amount: Decimal, recomputed_amount: Decimal) -> D
     """Signed adjustment amount, quantized to cents: positive when the
     correction raised the bill and more is owed, negative when it
     lowered the bill and a credit is due."""
-    return (original_amount - recomputed_amount).quantize(CENTS, rounding=ROUND_HALF_UP)
+    return (recomputed_amount - original_amount).quantize(CENTS, rounding=ROUND_HALF_UP)
 
 
 def charge_for(kwh: Decimal, tariff: Tariff, days: int) -> Decimal:

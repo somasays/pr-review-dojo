@@ -141,15 +141,14 @@ class BillRepo:
         stmt = select(Bill).where(Bill.account_id == account_id).order_by(Bill.period_start)
         return self.session.scalars(stmt).all()
 
-    def affected_by(
-        self, account_id: int, taken_at: datetime, *, meter_id: int | None = None
-    ) -> Sequence[Bill]:
-        """Original bills for account_id whose period covers taken_at."""
+    def affected_by(self, account_id: int, taken_at: datetime) -> Sequence[Bill]:
+        """Original bills for account_id whose half-open period
+        [period_start, period_end) covers taken_at's date."""
         at_date = taken_at.date()
         stmt = select(Bill).where(
             Bill.account_id == account_id,
             Bill.period_start <= at_date,
-            Bill.period_end >= at_date,
+            Bill.period_end > at_date,
             Bill.adjusts_bill_id.is_(None),
         )
         return self.session.scalars(stmt).all()

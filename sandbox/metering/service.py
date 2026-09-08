@@ -127,20 +127,7 @@ class BillingService:
         if existing is not None:
             return existing
 
-        start_at = datetime.combine(period_start, datetime.min.time(), tzinfo=UTC)
-        end_at = datetime.combine(period_end, datetime.min.time(), tzinfo=UTC)
-
-        total_kwh = Decimal("0.000")
-        for meter in self.meters.for_account(account.id):
-            opening = self.readings.latest_at_or_before(meter.id, start_at)
-            closing = self.readings.latest_at_or_before(meter.id, end_at)
-            if opening is None or closing is None or closing.id == opening.id:
-                continue
-            try:
-                total_kwh += consumption(opening.value_kwh, closing.value_kwh, meter.max_reading)
-            except DomainInvalidReading as exc:
-                raise InvalidReading(str(exc)) from exc
-
+        total_kwh = self._kwh_for_period(account.id, period_start, period_end)
         days = period_days(period_start, period_end)
         amount = charge_for(total_kwh, tariff, days)
 
@@ -176,6 +163,11 @@ class BillingService:
 
         issued: list[Bill] = []
         for original in self.bills.affected_by(account.id, corrected.taken_at):
+            existing = self.bills.for_correction(original.id, corrected.id)
+            if existing is not None:
+                issued.append(existing)
+                continue
+
             recomputed_kwh = self._kwh_for_period(
                 account.id, original.period_start, original.period_end
             )

@@ -183,12 +183,11 @@ def list_bills(account_id: int, identity: Identity, db: DbSession) -> Sequence[B
 
 
 @app.post("/readings/{reading_id}/adjustments", response_model=list[BillOut])
-def apply_correction(reading_id: int, identity: Identity, db: DbSession) -> Sequence[Bill]:
+def apply_correction(reading_id: int, reader_email: ReaderEmail, db: DbSession) -> Sequence[Bill]:
     """Recompute every bill affected by the correction `reading_id` and
     issue an adjustment for each one whose amount changed."""
-    _role, email = identity
     try:
-        return BillingService(db).apply_correction(email, reading_id, DEFAULT_TARIFF)
+        return BillingService(db).apply_correction(reader_email, reading_id, DEFAULT_TARIFF)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except NotAllowed as exc:
