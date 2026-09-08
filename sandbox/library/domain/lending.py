@@ -107,8 +107,8 @@ def replacement_fee_for(replacement_cost: Decimal, fine: Decimal, cap: Decimal) 
         raise ValueError("replacement_cost must not be negative")
     if fine < 0:
         raise ValueError("fine must not be negative")
-    capped_cost = min(replacement_cost, cap)
-    return (capped_cost + fine).quantize(_CENTS, rounding=ROUND_HALF_UP)
+    fee = (replacement_cost + fine).quantize(_CENTS, rounding=ROUND_HALF_UP)
+    return min(fee, cap.quantize(_CENTS, rounding=ROUND_HALF_UP))
 
 
 def can_reverse_loss(lost_on: date, today: date, window_days: int) -> bool:

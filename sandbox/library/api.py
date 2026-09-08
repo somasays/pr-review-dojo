@@ -11,6 +11,7 @@ when the endpoint returns and rolls back if anything raises.
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from os import environ
@@ -68,11 +69,35 @@ def require_patron(identity: Identity) -> str:
 PatronEmail = Annotated[str, Depends(require_patron)]
 
 
+def require_librarian(identity: Identity) -> str:
+    role, email = identity
+    if role != "librarian":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "a librarian key is required")
+    return email
+
+
+Librarian = Annotated[str, Depends(require_librarian)]
+
+
 def get_service(db: DbSession) -> LendingService:
     return LendingService(db)
 
 
 Service = Annotated[LendingService, Depends(get_service)]
+
+
+@contextmanager
+def _service_errors() -> Iterator[None]:
+    """Map the service's exceptions to their HTTP status once, instead of
+    every write endpoint repeating the same except clauses."""
+    try:
+        yield
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except NotAllowed as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+    except NoCopies as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
 class LoanCreate(BaseModel):
@@ -133,35 +158,21 @@ app = FastAPI(title="Library", version="0.1.0")
 
 @app.post("/loans", response_model=LoanOut, status_code=status.HTTP_201_CREATED)
 def create_loan(body: LoanCreate, patron_email: PatronEmail, service: Service) -> Loan:
-    try:
+    with _service_errors():
         return service.checkout(patron_email, body.item_id, _today())
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except NotAllowed as exc:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
-    except NoCopies as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
 @app.post("/loans/{loan_id}/return", response_model=ReturnOut)
 def return_loan(loan_id: int, patron_email: PatronEmail, service: Service) -> ReturnOut:
-    try:
+    with _service_errors():
         result = service.return_item(loan_id, patron_email, _today())
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except NotAllowed as exc:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
     return ReturnOut(loan=LoanOut.model_validate(result.loan), fine=result.fine)
 
 
 @app.post("/items/{item_id}/holds", response_model=HoldOut, status_code=status.HTTP_201_CREATED)
 def create_hold(item_id: int, patron_email: PatronEmail, service: Service) -> Hold:
-    try:
+    with _service_errors():
         return service.place_hold(patron_email, item_id, datetime.now(UTC))
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except NotAllowed as exc:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
 
 
 @app.post("/loans/{loan_id}/report-lost", response_model=LostReportOut)
@@ -169,25 +180,17 @@ def report_lost(loan_id: int, identity: Identity, service: Service) -> LostRepor
     """A patron may report their own loan lost; a librarian may report any
     patron's loan lost."""
     role, email = identity
-    try:
+    with _service_errors():
         result = service.report_lost(loan_id, role, email, _today())
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except NotAllowed as exc:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
     return LostReportOut(loan=LoanOut.model_validate(result.loan), fee=result.fee)
 
 
 @app.post("/loans/{loan_id}/reverse-loss", response_model=ReverseLossOut)
-def reverse_loss(loan_id: int, _identity: Identity, service: Service) -> ReverseLossOut:
-    """Reverse a lost report once the item turns up, within the reversal
-    window."""
-    try:
+def reverse_loss(loan_id: int, _librarian: Librarian, service: Service) -> ReverseLossOut:
+    """Only a librarian may reverse a lost report, once the item turns up
+    within the reversal window."""
+    with _service_errors():
         result = service.reverse_loss(loan_id, _today())
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except NotAllowed as exc:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
     return ReverseLossOut(loan=LoanOut.model_validate(result.loan), fine=result.fine)
 
 
