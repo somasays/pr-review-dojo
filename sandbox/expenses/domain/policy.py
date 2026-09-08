@@ -9,7 +9,7 @@ sandbox/rooms/domain, sandbox/lockers/domain, and sandbox/library/domain.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
@@ -69,6 +69,16 @@ def convert(amount: Decimal, rate: Decimal, precision: int) -> Decimal:
     return (amount * rate).quantize(quantum, rounding=ROUND_HALF_UP)
 
 
+def payable_total(approved_amounts: Sequence[Decimal]) -> Decimal:
+    """Sum of the approved line amounts on a claim, quantized to cents.
+
+    Rejected lines are never passed in; a claim with no approved lines has
+    a payable total of zero.
+    """
+    cents = sum((amount * 100 for amount in approved_amounts), Decimal("0"))
+    return cents.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 class ClaimStatus(Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
@@ -102,3 +112,12 @@ def transition(current: ClaimStatus, target: ClaimStatus) -> ClaimStatus:
     if target not in _ALLOWED_TRANSITIONS[current]:
         raise InvalidTransition(f"cannot move a claim from {current.value} to {target.value}")
     return target
+
+
+def claim_outcome(approved_line_count: int, total_line_count: int) -> ClaimStatus:
+    """The status a decided claim lands in: rejected only when every line on
+    it was rejected, approved when at least one line survives.
+    """
+    if approved_line_count < total_line_count:
+        return ClaimStatus.REJECTED
+    return ClaimStatus.APPROVED

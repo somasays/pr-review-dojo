@@ -92,6 +92,12 @@ class ClaimRepo:
         )
         return self.session.scalars(stmt).all()
 
+    def save(self, claim: Claim) -> Claim:
+        """Flush a decided claim's line outcomes and status. `add` does not
+        apply here since the claim already exists."""
+        self.session.flush()
+        return claim
+
 
 class BatchRepo:
     def __init__(self, session: Session) -> None:

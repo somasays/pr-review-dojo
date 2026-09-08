@@ -74,6 +74,7 @@ class Claim(Base):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decided_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    payable_total: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     paid_in_batch_id: Mapped[str | None] = mapped_column(
         ForeignKey("payout_batches.id"), nullable=True
     )
@@ -92,6 +93,8 @@ class ClaimLine(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     incurred_on: Mapped[date] = mapped_column(Date, nullable=False)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     claim: Mapped[Claim] = relationship(back_populates="lines")
 

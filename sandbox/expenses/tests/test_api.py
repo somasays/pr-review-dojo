@@ -52,3 +52,26 @@ def test_payouts_batches_creates_batch(client: TestClient) -> None:
     resp = client.post("/payouts/batches", headers=APPROVER_AUTH)
     assert resp.status_code == 201
     assert resp.json()["count"] == 1
+
+
+def test_decision_endpoint_rejects_one_line_and_keeps_others(client: TestClient) -> None:
+    body = {
+        "idempotency_key": "api-key-2",
+        "currency": "USD",
+        "lines": [
+            {"category": "meals", "amount": "20.00", "incurred_on": "2026-06-15"},
+            {"category": "meals", "amount": "15.00", "incurred_on": "2026-06-16"},
+        ],
+    }
+    created = client.post("/claims", json=body, headers=EMPLOYEE_AUTH).json()
+    rejected_line_id = created["lines"][0]["id"]
+
+    decision = {
+        "approve": True,
+        "rejected_lines": [{"line_id": rejected_line_id, "reason": "missing receipt"}],
+    }
+    resp = client.post(f"/claims/{created['id']}/decision", json=decision, headers=APPROVER_AUTH)
+    assert resp.status_code == 200
+    lines_by_id = {line["id"]: line for line in resp.json()["lines"]}
+    assert lines_by_id[rejected_line_id]["outcome"] == "rejected"
+    assert lines_by_id[rejected_line_id]["rejection_reason"] == "missing receipt"

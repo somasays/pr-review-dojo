@@ -126,6 +126,8 @@ class LineOut(BaseModel):
     amount: Decimal
     incurred_on: date
     note: str | None
+    outcome: str | None
+    rejection_reason: str | None
 
 
 class ClaimOut(BaseModel):
@@ -139,13 +141,20 @@ class ClaimOut(BaseModel):
     submitted_at: datetime | None
     decided_at: datetime | None
     decided_by: str | None
+    payable_total: Decimal | None
     paid_in_batch_id: str | None
     lines: list[LineOut]
+
+
+class RejectedLineIn(BaseModel):
+    line_id: str
+    reason: str
 
 
 class DecisionIn(BaseModel):
     approve: bool
     reason: str | None = None
+    rejected_lines: list[RejectedLineIn] = []
 
 
 class BatchOut(BaseModel):
@@ -204,8 +213,9 @@ def get_claim(claim_id: str, identity: Identity, db: DbSession) -> Claim:
 def decide_claim(
     claim_id: str, body: DecisionIn, approver_email: ApproverEmail, service: ClaimServiceDep
 ) -> Claim:
+    rejected_lines = [(line.line_id, line.reason) for line in body.rejected_lines] or None
     try:
-        return service.decide(approver_email, claim_id, body.approve, body.reason)
+        return service.decide(approver_email, claim_id, body.approve, body.reason, rejected_lines)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except NotAllowed as exc:

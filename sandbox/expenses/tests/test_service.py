@@ -102,3 +102,19 @@ def test_create_batch_marks_claims_paid_and_sets_total(
 def test_create_batch_rejects_naive_datetime(payout_service: PayoutService, seeded) -> None:
     with pytest.raises(ValueError):
         payout_service.create_batch(datetime(2026, 6, 15))
+
+
+def test_decide_rejects_some_lines_and_approves_others(claim_service: ClaimService, seeded) -> None:
+    claim = claim_service.submit(EMPLOYEE_EMAIL, "key-11", "USD", [_line("20.00"), _line("15.00")])
+    rejected_line = claim.lines[0]
+    decided = claim_service.decide(
+        SELF_APPROVER_EMAIL,
+        claim.id,
+        True,
+        None,
+        rejected_lines=[(rejected_line.id, "missing receipt")],
+    )
+    outcomes = {line.id: line.outcome for line in decided.lines}
+    assert outcomes[rejected_line.id] == "rejected"
+    remaining = [line for line in decided.lines if line.id != rejected_line.id][0]
+    assert outcomes[remaining.id] == "approved"

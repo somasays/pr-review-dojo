@@ -36,7 +36,7 @@ def write_batch_csv(batch_id: str, path: str | Path, session_factory: sessionmak
             .select_from(Claim)
             .join(Employee, Claim.employee_id == Employee.id)
             .join(ClaimLine, ClaimLine.claim_id == Claim.id)
-            .where(Claim.paid_in_batch_id == batch_id)
+            .where(Claim.paid_in_batch_id == batch_id, ClaimLine.outcome == "approved")
             .group_by(Claim.id, Employee.email, Claim.currency)
             .order_by(Claim.id)
         )
