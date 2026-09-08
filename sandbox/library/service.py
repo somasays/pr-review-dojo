@@ -45,7 +45,6 @@ class ReturnResult:
 
 class LendingService:
     def __init__(self, session: Session) -> None:
-        self.session = session
         self.patrons = PatronRepo(session)
         self.items = ItemRepo(session)
         self.loans = LoanRepo(session)
@@ -127,15 +126,13 @@ class LendingService:
             raise NotAllowed(f"loan {loan_id} has already been returned")
         if loan.renewals > MAX_RENEWALS:
             raise NotAllowed(f"loan {loan_id} has reached the maximum number of renewals")
+        if self.holds.other_patron_holds(loan.item_id, patron.id):
+            raise NotAllowed(f"item {loan.item_id} is held for another patron")
 
         fine_so_far = fine_for(loan.due_on, today, GRACE_DAYS, FINE_PER_DAY, FINE_CAP)
         loan.frozen_fine = loan.frozen_fine + fine_so_far
         loan.due_on = due_date(loan.due_on, LOAN_DAYS, WEEKENDS_EXCLUDED)
         loan.renewals += 1
-        self.session.commit()
-
-        if self.holds.other_patron_holds(loan.item_id, patron.id):
-            raise NotAllowed(f"item {loan.item_id} is held for another patron")
         return loan
 
     def place_hold(self, patron_email: str, item_id: int, now: datetime) -> Hold:
