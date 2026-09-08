@@ -44,6 +44,29 @@ def test_notify_overdue_calls_notifier_once_per_loan(
     assert fine > 0
 
 
+def test_notify_overdue_includes_a_loan_s_frozen_fine(
+    session_factory: sessionmaker[Session], seeded: dict[str, Patron | Item]
+) -> None:
+    """A loan renewed while overdue carries a frozen fine; the notifier's
+    total should be that frozen fine plus whatever has accrued since."""
+    loan_id = _make_overdue_loan(session_factory, seeded)
+    session = session_factory()
+    try:
+        LendingService(session).renew_loan(loan_id, seeded["alice"].email, date(2024, 1, 20))
+        session.commit()
+    finally:
+        session.close()
+
+    calls: list[Decimal] = []
+
+    def notifier(email: str, loan: Loan, fine: Decimal) -> None:
+        calls.append(fine)
+
+    notify_overdue(session_factory, date(2024, 2, 20), notifier)
+
+    assert calls and calls[0] > Decimal("0.00")
+
+
 def test_notify_overdue_skips_already_notified_today(
     session_factory: sessionmaker[Session], seeded: dict[str, Patron | Item]
 ) -> None:

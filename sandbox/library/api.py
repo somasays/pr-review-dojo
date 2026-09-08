@@ -79,6 +79,12 @@ class LoanCreate(BaseModel):
     item_id: int
 
 
+class RenewRequest(BaseModel):
+    # A librarian renewing a loan for a patron who called in can name whose
+    # loan it is; a patron key always acts for itself.
+    on_behalf_of_patron_email: str | None = None
+
+
 class LoanOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -90,6 +96,7 @@ class LoanOut(BaseModel):
     returned_on: date | None
     status: str
     renewals: int
+    frozen_fine: Decimal
 
 
 class ReturnOut(BaseModel):
@@ -142,6 +149,18 @@ def return_loan(loan_id: int, patron_email: PatronEmail, service: Service) -> Re
     except NotAllowed as exc:
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
     return ReturnOut(loan=LoanOut.model_validate(result.loan), fine=result.fine)
+
+
+@app.post("/loans/{loan_id}/renew", response_model=LoanOut)
+def renew_loan(loan_id: int, body: RenewRequest, identity: Identity, service: Service) -> Loan:
+    _role, email = identity
+    effective_email = body.on_behalf_of_patron_email or email
+    try:
+        return service.renew_loan(loan_id, effective_email, _today())
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except NotAllowed as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
 
 
 @app.post("/items/{item_id}/holds", response_model=HoldOut, status_code=status.HTTP_201_CREATED)
