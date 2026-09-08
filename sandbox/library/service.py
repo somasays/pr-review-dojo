@@ -120,7 +120,7 @@ class LendingService:
             raise NotFound(f"loan {loan_id} not found")
         if loan.patron_id != patron.id:
             raise NotAllowed(f"loan {loan_id} does not belong to {patron_email!r}")
-        if loan.status == "lost":
+        if loan.status == LoanStatus.LOST.value:
             raise NotAllowed(f"loan {loan_id} is lost and cannot be renewed")
         if loan.status == LoanStatus.RETURNED.value:
             raise NotAllowed(f"loan {loan_id} has already been returned")
