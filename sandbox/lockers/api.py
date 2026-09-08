@@ -20,7 +20,16 @@ from sqlalchemy.orm import Session, sessionmaker
 from sandbox.lockers.db import get_session_factory
 from sandbox.lockers.domain.fit import Dimensions
 from sandbox.lockers.repo import CompartmentRepo
-from sandbox.lockers.service import DepositService, Expired, InvalidCode, NoSpace, PickupService
+from sandbox.lockers.service import (
+    DepositService,
+    DifferentSite,
+    Expired,
+    InvalidCode,
+    NoSpace,
+    PickupService,
+    RedirectService,
+    TooManyRedirects,
+)
 
 
 def _courier_keys() -> set[str]:
@@ -54,8 +63,13 @@ def get_pickup_service(session_factory: SessionFactoryDep) -> PickupService:
     return PickupService(session_factory)
 
 
+def get_redirect_service(session_factory: SessionFactoryDep) -> RedirectService:
+    return RedirectService(session_factory)
+
+
 DepositServiceDep = Annotated[DepositService, Depends(get_deposit_service)]
 PickupServiceDep = Annotated[PickupService, Depends(get_pickup_service)]
+RedirectServiceDep = Annotated[RedirectService, Depends(get_redirect_service)]
 
 
 def require_courier(x_courier_key: Annotated[str | None, Header()] = None) -> None:
@@ -84,6 +98,18 @@ class PickupRequest(BaseModel):
 
 class PickupOut(BaseModel):
     late_fee_cents: int
+
+
+class RedirectRequest(BaseModel):
+    code: str
+    target_locker_id: int
+
+
+class RedirectOut(BaseModel):
+    id: int
+    compartment_id: int
+    pickup_code: str
+    expires_at: str
 
 
 class CompartmentOut(BaseModel):
@@ -129,6 +155,32 @@ def pickup_parcel(locker_id: int, body: PickupRequest, service: PickupServiceDep
     except Expired as exc:
         raise HTTPException(status.HTTP_410_GONE, str(exc)) from exc
     return PickupOut(late_fee_cents=fee)
+
+
+@app.post("/lockers/{locker_id}/parcels/{parcel_id}/redirect", response_model=RedirectOut)
+def redirect_parcel(
+    locker_id: int, parcel_id: int, body: RedirectRequest, service: RedirectServiceDep
+) -> RedirectOut:
+    try:
+        parcel = service.redirect(
+            locker_id, parcel_id, body.code, body.target_locker_id, datetime.utcnow()
+        )
+    except InvalidCode as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except Expired as exc:
+        raise HTTPException(status.HTTP_410_GONE, str(exc)) from exc
+    except TooManyRedirects as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except NoSpace as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except DifferentSite as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return RedirectOut(
+        id=parcel.id,
+        compartment_id=parcel.compartment_id,
+        pickup_code=parcel.pickup_code,
+        expires_at=_iso(parcel.expires_at),
+    )
 
 
 @app.get(

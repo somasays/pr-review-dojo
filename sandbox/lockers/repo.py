@@ -39,6 +39,13 @@ class CompartmentRepo:
         if compartment is not None:
             compartment.occupied = occupied
 
+    def release(self, compartment_id: int) -> None:
+        """Free a compartment right away, so it is ready for the next deposit."""
+        compartment = self.session.get(Compartment, compartment_id)
+        if compartment is not None:
+            compartment.occupied = False
+        self.session.commit()
+
     def list_by_locker(self, locker_id: int) -> Sequence[Compartment]:
         stmt = select(Compartment).where(Compartment.locker_id == locker_id)
         return self.session.scalars(stmt).all()

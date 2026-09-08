@@ -82,3 +82,13 @@ def late_fee_cents(
 def expires_at(deposited_at: datetime, hold_hours: int) -> datetime:
     """When a parcel expires if it is never picked up."""
     return deposited_at + timedelta(hours=hold_hours)
+
+
+def can_redirect(now: datetime, deadline: datetime) -> bool:
+    """True if a parcel can still be redirected to another locker.
+
+    Uses the same boundary PickupService uses for a normal pickup: right at
+    the moment of expiry is still in time, so a parcel that could still be
+    picked up can still be redirected too.
+    """
+    return now <= deadline
