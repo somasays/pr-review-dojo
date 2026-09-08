@@ -61,15 +61,16 @@ def seconds_remaining(deadline: float) -> int:
     return max(0, int(deadline - time.monotonic()))
 
 
-class _LogAlertNotifier:
-    """Default alert notifier: writes a warning to the module logger."""
+AlertNotifier = Callable[[int, datetime], None]
 
-    def notify(self, locker_id: int, locked_until: datetime) -> None:
-        log.warning(
-            "locker %s locked out until %s after repeated wrong codes",
-            locker_id,
-            locked_until.isoformat(),
-        )
+
+def _log_alert(locker_id: int, locked_until: datetime) -> None:
+    """Default alert notifier: writes a warning to the module logger."""
+    log.warning(
+        "locker %s locked out until %s after repeated wrong codes",
+        locker_id,
+        locked_until.isoformat(),
+    )
 
 
 class LockoutTracker:
@@ -78,11 +79,11 @@ class LockoutTracker:
     def __init__(
         self,
         policy: LockoutPolicy,
-        notifier: _LogAlertNotifier | None = None,
+        notifier: AlertNotifier = _log_alert,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._policy = policy
-        self._notifier = notifier or _LogAlertNotifier()
+        self._notifier = notifier
         self._clock = clock
         self._lock = threading.Lock()
         self._attempts: dict[int, list[float]] = {}
@@ -131,7 +132,7 @@ class LockoutTracker:
             return
         for attempt in range(1, _ALERT_ATTEMPTS + 1):
             try:
-                self._notifier.notify(locker_id, current.locked_until)
+                self._notifier(locker_id, current.locked_until)
                 return
             except AlertTransientError as exc:
                 log.warning(
