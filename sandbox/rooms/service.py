@@ -45,12 +45,7 @@ class BookingService:
         return self.bookings.add(booking)
 
     def amend(
-        self,
-        booking_id: str,
-        holder_email: str,
-        new_start: datetime,
-        new_end: datetime,
-        member: bool,
+        self, booking_id: str, holder_email: str, new_slot: Slot, member: bool
     ) -> tuple[Booking, int]:
         """Move or extend an active booking to a new slot in the same room.
 
@@ -73,7 +68,6 @@ class BookingService:
         if not can_amend(now, current_start):
             raise NotAllowed("too close to the start of the booking to amend it")
 
-        new_slot = Slot(new_start, new_end)
         conflicts = self.bookings.find_conflicts_excluding(booking.room_id, new_slot, booking_id)
         if conflicts:
             raise Conflict(f"room {booking.room_id!r} is already booked for that slot")

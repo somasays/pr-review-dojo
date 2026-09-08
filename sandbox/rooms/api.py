@@ -146,9 +146,10 @@ def get_booking(booking_id: str, _holder_email: HolderEmail, db: DbSession) -> B
 def amend_booking(
     booking_id: str, body: BookingAmend, holder_email: HolderEmail, service: Service
 ) -> BookingAmendOut:
+    new_slot = Slot(body.start, body.end)
     try:
         booking, price_difference_cents = service.amend(
-            booking_id, holder_email, body.start, body.end, body.member
+            booking_id, holder_email, new_slot, body.member
         )
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
