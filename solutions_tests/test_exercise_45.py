@@ -88,7 +88,10 @@ def test_month_cap_recheck_does_not_double_count_the_claim_being_decided(
     tight = {Category.MEALS: PolicyLimit(Category.MEALS, Decimal("50.00"), Decimal("50.00"))}
     service = ClaimService(session_factory, limits=tight)
     claim = service.submit(
-        EMPLOYEE_EMAIL, "hidden-key-2", "USD", [LineInput(Category.MEALS, Decimal("50.00"), INCURRED)]
+        EMPLOYEE_EMAIL,
+        "hidden-key-2",
+        "USD",
+        [LineInput(Category.MEALS, Decimal("50.00"), INCURRED)],
     )
     decided = service.decide(APPROVER_EMAIL, claim.id, True, None)
     assert decided.status == "approved"
