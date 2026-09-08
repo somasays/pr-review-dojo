@@ -183,7 +183,7 @@ class RedirectService:
                     f"no compartment of size {size.value} free in locker {target_locker_id}"
                 )
 
-            new_code = _generate_code(parcels, locker_id)
+            new_code = _generate_code(parcels, target_locker_id)
 
             compartments.set_occupied(new_compartment.id, True)
             parcel.compartment_id = new_compartment.id
