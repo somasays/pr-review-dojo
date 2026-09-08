@@ -19,6 +19,7 @@ from sandbox.expenses.db import Claim, ClaimLine, PayoutBatch, ensure_aware_utc,
 from sandbox.expenses.domain.policy import (
     Category,
     ClaimStatus,
+    LineRejection,
     PolicyLimit,
     claim_outcome,
     line_violations,
@@ -144,16 +145,17 @@ class ClaimService:
         claim_id: str,
         approve: bool,
         reason: str | None,
-        rejected_lines: Sequence[tuple[str, str]] | None = None,
+        rejected_lines: Sequence[LineRejection] | None = None,
     ) -> Claim:
         """Approve or reject a submitted claim, in whole or line by line.
 
-        Approving with `rejected_lines` (line id, reason pairs) marks those
-        lines rejected and every other line approved; the claim's payable
-        total is the sum of the approved lines, and the claim itself lands
-        on rejected only when every line ends up rejected. An approver may
-        not decide a claim they filed themselves. Repeating the same
-        decision from the same approver returns the claim unchanged."""
+        Approving with `rejected_lines` marks those lines rejected, each
+        with its own reason, and every other line approved; the claim's
+        payable total is the sum of the approved lines, and the claim
+        itself lands on rejected only when every line ends up rejected. An
+        approver may not decide a claim they filed themselves. Repeating
+        the same decision from the same approver returns the claim
+        unchanged."""
         if not approve and not reason:
             raise PolicyViolation("a reason is required to reject a claim")
 
@@ -184,7 +186,7 @@ class ClaimService:
                 approved_lines = [line for line in claim.lines if line.outcome == "approved"]
                 claim.payable_total = sum((line.amount for line in approved_lines), Decimal("0.00"))
             else:
-                rejected_by_id = dict(rejected_lines)
+                rejected_by_id = {r.line_id: r.reason for r in rejected_lines}
                 known_ids = {line.id for line in claim.lines}
                 unknown_ids = set(rejected_by_id) - known_ids
                 if unknown_ids:

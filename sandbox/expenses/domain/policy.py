@@ -69,6 +69,12 @@ def convert(amount: Decimal, rate: Decimal, precision: int) -> Decimal:
     return (amount * rate).quantize(quantum, rounding=ROUND_HALF_UP)
 
 
+@dataclass(frozen=True, slots=True)
+class LineRejection:
+    line_id: str
+    reason: str
+
+
 def payable_total(approved_amounts: Sequence[Decimal]) -> Decimal:
     """Sum of the approved line amounts on a claim, quantized to cents.
 
