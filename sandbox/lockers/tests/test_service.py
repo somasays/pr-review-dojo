@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sandbox.lockers.db import Compartment, Locker
 from sandbox.lockers.domain.fit import Dimensions
 from sandbox.lockers.service import (
+    MAX_REDIRECTS,
     DepositService,
     Expired,
     InvalidCode,
@@ -154,26 +155,24 @@ def test_redirect_moves_parcel_and_issues_a_new_code(
     assert new_compartment.locker_id == other_locker.id
 
 
-def test_redirect_limit_eventually_blocks_further_redirects(
+def test_redirect_stops_exactly_at_the_limit(
     deposit_service: DepositService,
     redirect_service: RedirectService,
     locker: Locker,
     db: Session,
 ) -> None:
-    """A parcel cannot hop between lockers forever."""
-    targets = [_extra_locker(db) for _ in range(5)]
+    """MAX_REDIRECTS redirects succeed; the next one is refused."""
+    targets = [_extra_locker(db) for _ in range(MAX_REDIRECTS + 1)]
     parcel = deposit_service.deposit(locker.id, SMALL, "ada@example.com", NOW)
 
     current = locker
-    hit_limit = False
-    for target in targets:
-        try:
-            parcel = redirect_service.redirect(
-                current.id, parcel.id, parcel.pickup_code, target.id, NOW
-            )
-            current = target
-        except TooManyRedirects:
-            hit_limit = True
-            break
+    for target in targets[:MAX_REDIRECTS]:
+        parcel = redirect_service.redirect(
+            current.id, parcel.id, parcel.pickup_code, target.id, NOW
+        )
+        current = target
 
-    assert hit_limit
+    with pytest.raises(TooManyRedirects):
+        redirect_service.redirect(
+            current.id, parcel.id, parcel.pickup_code, targets[MAX_REDIRECTS].id, NOW
+        )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+from collections.abc import Callable
 from datetime import datetime
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -124,20 +125,21 @@ class PickupService:
             return fee
 
 
-def _notify_redirect(parcel: Parcel, target_locker_id: int) -> None:
-    log.info(
-        "parcel %s redirected to locker %s, new code %s",
-        parcel.id,
-        target_locker_id,
-        parcel.pickup_code,
-    )
+Notifier = Callable[[Parcel], None]
+
+
+def _log_redirect(parcel: Parcel) -> None:
+    log.info("parcel %s redirected, new code %s", parcel.id, parcel.pickup_code)
 
 
 class RedirectService:
     """Move an undelivered parcel to a different locker at the same site."""
 
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+    def __init__(
+        self, session_factory: sessionmaker[Session], notifier: Notifier = _log_redirect
+    ) -> None:
         self.session_factory = session_factory
+        self.notifier = notifier
 
     def redirect(
         self,
@@ -162,8 +164,8 @@ class RedirectService:
             if target_locker_id == locker_id or source_locker.site != target_locker.site:
                 raise DifferentSite("redirect target must be a different locker at the same site")
 
-            parcel = parcels.get(parcel_id)
-            if parcel is None or parcel.picked_up_at is not None:
+            parcel = parcels.by_code(locker_id, code)
+            if parcel is None or parcel.id != parcel_id:
                 raise InvalidCode(f"no active parcel {parcel_id} in locker {locker_id}")
             if not can_redirect(now, parcel.expires_at):
                 raise Expired(f"parcel {parcel.id} can no longer be redirected")
@@ -175,7 +177,7 @@ class RedirectService:
                 raise InvalidCode(f"parcel {parcel.id} has no compartment")
             size = Size(old_compartment.size)
 
-            compartments.release(old_compartment.id)
+            compartments.set_occupied(old_compartment.id, False)
 
             new_compartment = compartments.free_by_size(target_locker_id, size)
             if new_compartment is None:
@@ -183,14 +185,12 @@ class RedirectService:
                     f"no compartment of size {size.value} free in locker {target_locker_id}"
                 )
 
-            new_code = _generate_code(parcels, locker_id)
+            new_code = _generate_code(parcels, target_locker_id)
 
             compartments.set_occupied(new_compartment.id, True)
             parcel.compartment_id = new_compartment.id
             parcel.pickup_code = new_code
-            parcel.deposited_at = now
-            parcel.expires_at = expires_at(now, HOLD_HOURS)
             parcel.redirect_count += 1
 
-            _notify_redirect(parcel, target_locker_id)
+            self.notifier(parcel)
             return parcel
