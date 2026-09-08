@@ -6,54 +6,15 @@ import inspect
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from sandbox.lockers.db import Base, Compartment, Locker
 from sandbox.lockers.lockout import (
     AlertTransientError,
     LockoutPolicy,
     LockoutTracker,
     seconds_remaining,
 )
-from sandbox.lockers.service import InvalidCode, PickupService
-
-NOW = datetime(2026, 9, 8, 9, 0)
-
-
-@pytest.fixture
-def engine():
-    eng = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
-    )
-    Base.metadata.create_all(eng)
-    yield eng
-    eng.dispose()
-
-
-@pytest.fixture
-def session_factory(engine) -> sessionmaker[Session]:
-    return sessionmaker(bind=engine, expire_on_commit=False)
-
-
-@pytest.fixture
-def db(session_factory: sessionmaker[Session]) -> Session:
-    return session_factory()
-
-
-@pytest.fixture
-def locker(db: Session) -> Locker:
-    loc = Locker(site="Main St", active=True)
-    db.add(loc)
-    db.flush()
-    for size in ("S", "M", "L"):
-        db.add(Compartment(locker_id=loc.id, size=size, occupied=False))
-    db.commit()
-    return loc
 
 
 class _FailingNotifier:
@@ -107,18 +68,20 @@ def test_get_lockout_tracker_is_a_true_singleton(monkeypatch: pytest.MonkeyPatch
 # SV-03: after the bounded retry exhausted, the exercise branch logged and
 # returned as if the page had gone out, so ops never learns a lockout was
 # never announced.
-def test_alert_failure_is_not_silently_swallowed(
-    session_factory: sessionmaker[Session], locker: Locker
-) -> None:
+def test_alert_failure_is_not_silently_swallowed() -> None:
     policy = LockoutPolicy(max_attempts=1, window_seconds=60, lockout_minutes=5, sweep_seconds=3600)
     notifier = _FailingNotifier()
     tracker = LockoutTracker(policy, notifier)
-    service = PickupService(session_factory, tracker)
+    tracker.record_failure(1)  # triggers the lockout
 
-    with pytest.raises(InvalidCode):
-        service.pickup(locker.id, "000000", NOW)  # triggers the lockout and the alert
+    raised = False
+    try:
+        tracker.alert(1)
+    except Exception:
+        raised = True
 
     assert notifier.calls == 3  # bounded retry: exactly the attempt cap, not fewer or more
+    assert raised, "alert() must not return normally when every retry attempt failed"
 
 
 # LG-11: the locked-until timestamp was built with an aware datetime.now(UTC)
