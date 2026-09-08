@@ -9,6 +9,7 @@ import pytest
 from sandbox.lockers.domain.fit import (
     Dimensions,
     Size,
+    can_redirect,
     expires_at,
     fits,
     late_fee_cents,
@@ -60,3 +61,9 @@ def test_late_fee_rejects_pickup_before_deposit() -> None:
 
 def test_expires_at_adds_hold_hours() -> None:
     assert expires_at(DEPOSITED, 72) == DEPOSITED + timedelta(hours=72)
+
+
+def test_can_redirect_boundary_is_inclusive() -> None:
+    deadline = DEPOSITED + timedelta(hours=72)
+    assert can_redirect(deadline, deadline)
+    assert not can_redirect(deadline + timedelta(seconds=1), deadline)
