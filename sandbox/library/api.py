@@ -153,8 +153,10 @@ def return_loan(loan_id: int, patron_email: PatronEmail, service: Service) -> Re
 
 @app.post("/loans/{loan_id}/renew", response_model=LoanOut)
 def renew_loan(loan_id: int, body: RenewRequest, identity: Identity, service: Service) -> Loan:
-    _role, email = identity
-    effective_email = body.on_behalf_of_patron_email or email
+    role, email = identity
+    effective_email = email
+    if role == "librarian" and body.on_behalf_of_patron_email:
+        effective_email = body.on_behalf_of_patron_email
     try:
         return service.renew_loan(loan_id, effective_email, _today())
     except NotFound as exc:
