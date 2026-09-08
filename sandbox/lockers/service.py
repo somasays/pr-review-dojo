@@ -188,8 +188,6 @@ class RedirectService:
             compartments.set_occupied(new_compartment.id, True)
             parcel.compartment_id = new_compartment.id
             parcel.pickup_code = new_code
-            parcel.deposited_at = now
-            parcel.expires_at = expires_at(now, HOLD_HOURS)
             parcel.redirect_count += 1
 
             _notify_redirect(parcel, target_locker_id)
