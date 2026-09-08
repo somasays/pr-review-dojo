@@ -173,7 +173,7 @@ class LendingService:
         loan = self.loans.get(loan_id)
         if loan is None:
             raise NotFound(f"loan {loan_id} not found")
-        if loan.status != "lost":
+        if loan.status != LoanStatus.LOST.value:
             raise NotAllowed(f"loan {loan_id} is not lost")
         if loan.lost_on is None or not can_reverse_loss(loan.lost_on, today, REVERSAL_WINDOW_DAYS):
             raise NotAllowed(f"loan {loan_id} is outside the reversal window")
