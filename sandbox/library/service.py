@@ -14,7 +14,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from sandbox.library.db import Hold, Loan, ensure_aware_utc
-from sandbox.library.domain.lending import LoanStatus, due_date, fine_for, transition
+from sandbox.library.domain.lending import LoanStatus, can_renew, due_date, fine_for, transition
 from sandbox.library.repo import HoldRepo, ItemRepo, LoanRepo, PatronRepo
 
 LOAN_DAYS = 14
@@ -124,7 +124,7 @@ class LendingService:
             raise NotAllowed(f"loan {loan_id} is lost and cannot be renewed")
         if loan.status == LoanStatus.RETURNED.value:
             raise NotAllowed(f"loan {loan_id} has already been returned")
-        if loan.renewals > MAX_RENEWALS:
+        if not can_renew(loan.renewals, MAX_RENEWALS, has_hold=False):
             raise NotAllowed(f"loan {loan_id} has reached the maximum number of renewals")
         if self.holds.other_patron_holds(loan.item_id, patron.id):
             raise NotAllowed(f"item {loan.item_id} is held for another patron")
