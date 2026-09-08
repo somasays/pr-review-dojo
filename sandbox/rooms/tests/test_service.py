@@ -98,8 +98,9 @@ def test_amend_moves_booking_recomputes_price_and_resets_reminder(
     db.commit()
 
     new_start = _next_half_hour(now + timedelta(hours=5))
+    new_slot = Slot(new_start, new_start + timedelta(hours=2))
     updated, price_difference_cents = service.amend(
-        booking.id, new_start, new_start + timedelta(hours=2), member=False
+        booking.id, "ada@example.com", new_slot, member=False
     )
 
     assert updated.start == new_start
@@ -120,8 +121,9 @@ def test_amend_conflict_with_another_booking_raises(service: BookingService, roo
         room.id, "bea@example.com", Slot(start_b, start_b + timedelta(minutes=30)), member=False
     )
 
+    new_slot = Slot(start_b, start_b + timedelta(minutes=30))
     with pytest.raises(Conflict):
-        service.amend(booking_a.id, start_b, start_b + timedelta(minutes=30), member=False)
+        service.amend(booking_a.id, "ada@example.com", new_slot, member=False)
 
 
 def test_amend_refused_minutes_before_start(
@@ -141,8 +143,9 @@ def test_amend_refused_minutes_before_start(
     db.commit()
 
     new_start = _next_half_hour(now + timedelta(hours=4))
+    new_slot = Slot(new_start, new_start + timedelta(minutes=30))
     with pytest.raises(NotAllowed):
-        service.amend(booking.id, new_start, new_start + timedelta(minutes=30), member=False)
+        service.amend(booking.id, "ada@example.com", new_slot, member=False)
 
 
 def test_amend_refused_once_the_booking_has_started(
@@ -162,12 +165,14 @@ def test_amend_refused_once_the_booking_has_started(
     db.commit()
 
     new_start = _next_half_hour(now + timedelta(hours=4))
+    new_slot = Slot(new_start, new_start + timedelta(minutes=30))
     with pytest.raises(NotAllowed):
-        service.amend(booking.id, new_start, new_start + timedelta(minutes=30), member=False)
+        service.amend(booking.id, "ada@example.com", new_slot, member=False)
 
 
 def test_amend_unknown_booking_raises_not_found(service: BookingService) -> None:
     now = datetime.now(UTC)
     new_start = _next_half_hour(now + timedelta(hours=4))
+    new_slot = Slot(new_start, new_start + timedelta(minutes=30))
     with pytest.raises(NotFound):
-        service.amend("no-such-booking", new_start, new_start + timedelta(minutes=30), member=False)
+        service.amend("no-such-booking", "ada@example.com", new_slot, member=False)

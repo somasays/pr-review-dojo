@@ -123,15 +123,22 @@ def _free_half_hours(day: date, booked: Sequence[Booking]) -> list[FreeSlotOut]:
 app = FastAPI(title="Rooms", version="0.1.0")
 
 
+def _as_http_error(exc: NotFound | Conflict | NotAllowed) -> HTTPException:
+    """Map a service error to the HTTPException every booking endpoint raises for it."""
+    if isinstance(exc, NotFound):
+        return HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+    if isinstance(exc, Conflict):
+        return HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    return HTTPException(status.HTTP_403_FORBIDDEN, str(exc))
+
+
 @app.post("/bookings", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
 def create_booking(body: BookingCreate, holder_email: HolderEmail, service: Service) -> Booking:
     slot = Slot(body.start, body.end)
     try:
         return service.book(body.room_id, holder_email, slot, body.member)
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except Conflict as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except (NotFound, Conflict) as exc:
+        raise _as_http_error(exc) from exc
 
 
 @app.get("/bookings/{booking_id}", response_model=BookingOut)
@@ -146,16 +153,13 @@ def get_booking(booking_id: str, _holder_email: HolderEmail, db: DbSession) -> B
 def amend_booking(
     booking_id: str, body: BookingAmend, holder_email: HolderEmail, service: Service
 ) -> BookingAmendOut:
+    new_slot = Slot(body.start, body.end)
     try:
         booking, price_difference_cents = service.amend(
-            booking_id, body.start, body.end, body.member
+            booking_id, holder_email, new_slot, body.member
         )
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except Conflict as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    except NotAllowed as exc:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+    except (NotFound, Conflict, NotAllowed) as exc:
+        raise _as_http_error(exc) from exc
     return BookingAmendOut(
         booking=BookingOut.model_validate(booking), price_difference_cents=price_difference_cents
     )
@@ -165,10 +169,8 @@ def amend_booking(
 def cancel_booking(booking_id: str, holder_email: HolderEmail, service: Service) -> Booking:
     try:
         return service.cancel(booking_id, holder_email)
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except NotAllowed as exc:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+    except (NotFound, NotAllowed) as exc:
+        raise _as_http_error(exc) from exc
 
 
 @app.get("/rooms/{room_id}/availability", response_model=AvailabilityOut)
