@@ -39,10 +39,10 @@ select = ["E", "F", "I", "UP"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["app/domain", "sandbox/rooms/domain"]
+files = ["app/domain", "sandbox/rooms/domain", "sandbox/lockers/domain"]
 strict = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "sandbox/rooms/tests"]
+testpaths = ["tests", "sandbox/rooms/tests", "sandbox/lockers/tests"]
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning"]

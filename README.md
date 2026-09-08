@@ -7,6 +7,9 @@ interview practice. Exercises are pull requests against this codebase. See
 A second, self-contained practice codebase lives at `sandbox/rooms/`; see
 `sandbox/rooms/README.md` for what it is and its own conventions.
 
+A third, self-contained practice codebase lives at `sandbox/lockers/`; see
+`sandbox/lockers/README.md` for what it is and its own conventions.
+
 ## Layout
 
 | Package | What it does |
