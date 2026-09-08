@@ -94,7 +94,7 @@ class LockoutTracker:
         self._locked_until: dict[int, float] = {}
         self._last_seen: dict[int, float] = {}
         self._thread: threading.Thread | None = None
-        self._stopped = False
+        self._stop_event = threading.Event()
 
     def record_failure(self, locker_id: int) -> bool:
         """Record a failed pickup attempt. Returns True if this call triggers a new lockout."""
@@ -161,13 +161,12 @@ class LockoutTracker:
         self._thread.start()
 
     def stop(self, timeout: float = 2.0) -> None:
-        self._stopped = True
+        self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=timeout)
 
     def _run(self) -> None:
-        while not self._stopped:
-            time.sleep(self._policy.sweep_seconds)
+        while not self._stop_event.wait(self._policy.sweep_seconds):
             self._sweep()
 
     def _sweep(self) -> None:
