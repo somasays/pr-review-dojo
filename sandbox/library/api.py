@@ -14,7 +14,7 @@ from collections.abc import Iterator, Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from os import environ
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict
@@ -23,6 +23,15 @@ from sqlalchemy.orm import Session
 from sandbox.library.db import Hold, Loan, session_scope
 from sandbox.library.repo import ItemRepo, LoanRepo, PatronRepo
 from sandbox.library.service import LendingService, NoCopies, NotAllowed, NotFound
+
+
+def _reraise_as_http(exc: NotFound | NotAllowed | NoCopies) -> NoReturn:
+    """Map the service's exceptions to the HTTP status every handler uses."""
+    if isinstance(exc, NotFound):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    if isinstance(exc, NotAllowed):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+    raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
 def _keys() -> dict[str, tuple[str, str]]:
@@ -132,22 +141,16 @@ app = FastAPI(title="Library", version="0.1.0")
 def create_loan(body: LoanCreate, patron_email: PatronEmail, service: Service) -> Loan:
     try:
         return service.checkout(patron_email, body.item_id, _today())
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except NotAllowed as exc:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
-    except NoCopies as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except (NotFound, NotAllowed, NoCopies) as exc:
+        _reraise_as_http(exc)
 
 
 @app.post("/loans/{loan_id}/return", response_model=ReturnOut)
 def return_loan(loan_id: int, patron_email: PatronEmail, service: Service) -> ReturnOut:
     try:
         result = service.return_item(loan_id, patron_email, _today())
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except NotAllowed as exc:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+    except (NotFound, NotAllowed, NoCopies) as exc:
+        _reraise_as_http(exc)
     return ReturnOut(loan=LoanOut.model_validate(result.loan), fine=result.fine)
 
 
@@ -159,20 +162,16 @@ def renew_loan(loan_id: int, body: RenewRequest, identity: Identity, service: Se
         effective_email = body.on_behalf_of_patron_email
     try:
         return service.renew_loan(loan_id, effective_email, _today())
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except NotAllowed as exc:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+    except (NotFound, NotAllowed, NoCopies) as exc:
+        _reraise_as_http(exc)
 
 
 @app.post("/items/{item_id}/holds", response_model=HoldOut, status_code=status.HTTP_201_CREATED)
 def create_hold(item_id: int, patron_email: PatronEmail, service: Service) -> Hold:
     try:
         return service.place_hold(patron_email, item_id, datetime.now(UTC))
-    except NotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
-    except NotAllowed as exc:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+    except (NotFound, NotAllowed, NoCopies) as exc:
+        _reraise_as_http(exc)
 
 
 @app.get("/patrons/{patron_id}/loans", response_model=list[LoanOut])
