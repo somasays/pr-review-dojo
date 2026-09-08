@@ -68,6 +68,16 @@ def require_patron(identity: Identity) -> str:
 PatronEmail = Annotated[str, Depends(require_patron)]
 
 
+def require_librarian(identity: Identity) -> str:
+    role, email = identity
+    if role != "librarian":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "a librarian key is required")
+    return email
+
+
+Librarian = Annotated[str, Depends(require_librarian)]
+
+
 def get_service(db: DbSession) -> LendingService:
     return LendingService(db)
 
@@ -179,9 +189,9 @@ def report_lost(loan_id: int, identity: Identity, service: Service) -> LostRepor
 
 
 @app.post("/loans/{loan_id}/reverse-loss", response_model=ReverseLossOut)
-def reverse_loss(loan_id: int, _identity: Identity, service: Service) -> ReverseLossOut:
-    """Reverse a lost report once the item turns up, within the reversal
-    window."""
+def reverse_loss(loan_id: int, _librarian: Librarian, service: Service) -> ReverseLossOut:
+    """Only a librarian may reverse a lost report, once the item turns up
+    within the reversal window."""
     try:
         result = service.reverse_loss(loan_id, _today())
     except NotFound as exc:
