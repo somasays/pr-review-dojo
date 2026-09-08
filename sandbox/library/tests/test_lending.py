@@ -11,6 +11,7 @@ from sandbox.library.domain.lending import (
     InvalidTransition,
     LoanStatus,
     can_renew,
+    can_reverse_loss,
     due_date,
     fine_for,
     replacement_fee_for,
@@ -81,3 +82,9 @@ def test_replacement_fee_for_adds_cost_and_fine() -> None:
 def test_replacement_fee_for_capped() -> None:
     fee = replacement_fee_for(Decimal("90.00"), Decimal("0.00"), Decimal("75.00"))
     assert fee == Decimal("75.00")
+
+
+def test_can_reverse_loss_window_is_inclusive() -> None:
+    lost_on = date(2024, 1, 1)
+    assert can_reverse_loss(lost_on, date(2024, 1, 22), window_days=21) is True  # day 21
+    assert can_reverse_loss(lost_on, date(2024, 1, 23), window_days=21) is False  # day 22
