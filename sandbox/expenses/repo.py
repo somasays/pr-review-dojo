@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from sandbox.expenses.db import Claim, ClaimLine, Employee, PayoutBatch
-from sandbox.expenses.domain.policy import Category, ClaimStatus
+from sandbox.expenses.domain.policy import Category, ClaimStatus, LineOutcome
 
 _CENTS = Decimal("0.01")
 
@@ -66,6 +66,35 @@ class ClaimRepo:
             .where(
                 Claim.employee_id == employee_id,
                 Claim.status.in_([ClaimStatus.SUBMITTED.value, ClaimStatus.APPROVED.value]),
+                ClaimLine.category == category.value,
+                ClaimLine.incurred_on >= start,
+                ClaimLine.incurred_on <= end,
+            )
+        )
+        total = self.session.scalar(stmt)
+        return Decimal(str(total)).quantize(_CENTS) if total is not None else Decimal("0.00")
+
+    def approved_month_total_for(
+        self,
+        employee_id: str,
+        category: Category,
+        year: int,
+        month: int,
+        exclude_claim_id: str,
+    ) -> Decimal:
+        """Sum of approved line amounts in this category for this
+        employee's approved or paid claims incurred in this year and
+        month, excluding the claim currently being decided."""
+        start = date(year, month, 1)
+        end = date(year, month, monthrange(year, month)[1])
+        stmt = (
+            select(func.sum(ClaimLine.amount))
+            .join(Claim, ClaimLine.claim_id == Claim.id)
+            .where(
+                Claim.employee_id == employee_id,
+                Claim.id != exclude_claim_id,
+                Claim.status.in_([ClaimStatus.APPROVED.value, ClaimStatus.PAID.value]),
+                ClaimLine.outcome == LineOutcome.APPROVED.value,
                 ClaimLine.category == category.value,
                 ClaimLine.incurred_on >= start,
                 ClaimLine.incurred_on <= end,

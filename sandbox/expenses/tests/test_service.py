@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from sandbox.expenses.domain.policy import Category, PolicyLimit
+from sandbox.expenses.domain.policy import Category, LineRejection, PolicyLimit
 from sandbox.expenses.service import (
     ClaimService,
     LineInput,
@@ -112,7 +112,7 @@ def test_decide_rejects_some_lines_and_approves_others(claim_service: ClaimServi
         claim.id,
         True,
         None,
-        rejected_lines=[(rejected_line.id, "missing receipt")],
+        rejected_lines=[LineRejection(rejected_line.id, "missing receipt")],
     )
     outcomes = {line.id: line.outcome for line in decided.lines}
     assert outcomes[rejected_line.id] == "rejected"
