@@ -162,8 +162,8 @@ class RedirectService:
             if target_locker_id == locker_id or source_locker.site != target_locker.site:
                 raise DifferentSite("redirect target must be a different locker at the same site")
 
-            parcel = parcels.get(parcel_id)
-            if parcel is None or parcel.picked_up_at is not None:
+            parcel = parcels.by_code(locker_id, code)
+            if parcel is None or parcel.id != parcel_id:
                 raise InvalidCode(f"no active parcel {parcel_id} in locker {locker_id}")
             if not can_redirect(now, parcel.expires_at):
                 raise Expired(f"parcel {parcel.id} can no longer be redirected")
