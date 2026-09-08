@@ -44,3 +44,5 @@
 | 40 | teach | sandbox | medium | 2026-09-08 | [PR](https://github.com/somasays/pr-review-dojo/pull/94) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/96) | | |
 | 41 | test | sandbox | medium | 2026-09-08 | [PR](https://github.com/somasays/pr-review-dojo/pull/97) | - | | |
 | 42 | teach | sandbox | medium | 2026-09-08 | [PR](https://github.com/somasays/pr-review-dojo/pull/99) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/100) | | |
+| 43 | test | sandbox | medium | 2026-09-08 | [PR](https://github.com/somasays/pr-review-dojo/pull/102) | - | | |
+| 44 | teach | sandbox | medium | 2026-09-08 | [PR](https://github.com/somasays/pr-review-dojo/pull/104) | [rewrite](https://github.com/somasays/pr-review-dojo/pull/106) | | |
