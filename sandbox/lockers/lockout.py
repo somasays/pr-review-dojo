@@ -13,7 +13,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from functools import lru_cache
 from os import environ
 
@@ -56,20 +56,25 @@ class AlertTransientError(Exception):
     """Raised by a notifier for a failure the caller should retry."""
 
 
-def seconds_remaining(deadline: float) -> int:
+class AlertDeliveryFailed(Exception):
+    """Raised by `alert` when the bounded retry exhausts with no successful notify."""
+
+
+def seconds_remaining(deadline: float, now: float) -> int:
     """Whole seconds left before a monotonic deadline, floored at zero."""
-    return max(0, int(deadline - time.monotonic()))
+    return max(0, int(deadline - now))
 
 
-class _LogAlertNotifier:
+AlertNotifier = Callable[[int, datetime], None]
+
+
+def _log_alert(locker_id: int, locked_until: datetime) -> None:
     """Default alert notifier: writes a warning to the module logger."""
-
-    def notify(self, locker_id: int, locked_until: datetime) -> None:
-        log.warning(
-            "locker %s locked out until %s after repeated wrong codes",
-            locker_id,
-            locked_until.isoformat(),
-        )
+    log.warning(
+        "locker %s locked out until %s after repeated wrong codes",
+        locker_id,
+        locked_until.isoformat(),
+    )
 
 
 class LockoutTracker:
@@ -78,18 +83,18 @@ class LockoutTracker:
     def __init__(
         self,
         policy: LockoutPolicy,
-        notifier: _LogAlertNotifier | None = None,
+        notifier: AlertNotifier = _log_alert,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._policy = policy
-        self._notifier = notifier or _LogAlertNotifier()
+        self._notifier = notifier
         self._clock = clock
         self._lock = threading.Lock()
         self._attempts: dict[int, list[float]] = {}
         self._locked_until: dict[int, float] = {}
         self._last_seen: dict[int, float] = {}
         self._thread: threading.Thread | None = None
-        self._stopped = False
+        self._stop_event = threading.Event()
 
     def record_failure(self, locker_id: int) -> bool:
         """Record a failed pickup attempt. Returns True if this call triggers a new lockout."""
@@ -111,10 +116,10 @@ class LockoutTracker:
             until = self._locked_until.get(locker_id)
         if until is None:
             return None
-        remaining = seconds_remaining(until)
+        remaining = seconds_remaining(until, self._clock())
         if remaining <= 0:
             return None
-        locked_until_at = datetime.now(UTC) + timedelta(seconds=remaining)
+        locked_until_at = datetime.utcnow() + timedelta(seconds=remaining)
         return LockoutStatus(retry_after_seconds=remaining, locked_until=locked_until_at)
 
     def clear(self, locker_id: int) -> None:
@@ -125,13 +130,17 @@ class LockoutTracker:
             self._last_seen.pop(locker_id, None)
 
     def alert(self, locker_id: int) -> None:
-        """Page ops once for a newly triggered lockout, with a bounded retry."""
+        """Page ops once for a newly triggered lockout, with a bounded retry.
+
+        Raises AlertDeliveryFailed if every attempt fails, so a caller can
+        observe and log the failure instead of it being silently lost.
+        """
         current = self.status(locker_id)
         if current is None:
             return
         for attempt in range(1, _ALERT_ATTEMPTS + 1):
             try:
-                self._notifier.notify(locker_id, current.locked_until)
+                self._notifier(locker_id, current.locked_until)
                 return
             except AlertTransientError as exc:
                 log.warning(
@@ -141,10 +150,8 @@ class LockoutTracker:
                     locker_id,
                     exc,
                 )
-        log.error(
-            "ops alert for locker %s could not be delivered after %d attempts",
-            locker_id,
-            _ALERT_ATTEMPTS,
+        raise AlertDeliveryFailed(
+            f"ops alert for locker {locker_id} not delivered after {_ALERT_ATTEMPTS} attempts"
         )
 
     def start(self) -> None:
@@ -154,13 +161,12 @@ class LockoutTracker:
         self._thread.start()
 
     def stop(self, timeout: float = 2.0) -> None:
-        self._stopped = True
+        self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=timeout)
 
     def _run(self) -> None:
-        while not self._stopped:
-            time.sleep(self._policy.sweep_seconds)
+        while not self._stop_event.wait(self._policy.sweep_seconds):
             self._sweep()
 
     def _sweep(self) -> None:

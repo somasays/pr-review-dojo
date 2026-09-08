@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from datetime import datetime
 
 import pytest
@@ -60,12 +59,17 @@ def test_correct_pickup_clears_the_counter(
     assert tracker.status(locker.id) is None
 
 
-def test_background_thread_prunes_expired_lockouts() -> None:
-    policy = LockoutPolicy(max_attempts=1, window_seconds=60, lockout_minutes=0, sweep_seconds=0.05)
-    tracker = LockoutTracker(policy)
-    tracker.start()
-    tracker.record_failure(1)
+def test_sweep_expires_lockouts_and_prunes_idle_counters() -> None:
+    # An injected clock makes this deterministic: no sleep, no real thread,
+    # no waiting on wall-clock time to find out whether the sweep worked.
+    now = [0.0]
+    policy = LockoutPolicy(max_attempts=1, window_seconds=10, lockout_minutes=1, sweep_seconds=3600)
+    tracker = LockoutTracker(policy, clock=lambda: now[0])
 
-    time.sleep(0.2)  # give the sweep a chance to notice the lockout has expired
+    tracker.record_failure(1)
+    assert tracker.status(1) is not None
+
+    now[0] += 61  # past the one minute lockout
+    tracker._sweep()
     assert tracker.status(1) is None
-    tracker.stop()
+    assert 1 not in tracker._attempts  # idle counter pruned, not just the lockout cleared
