@@ -75,8 +75,8 @@ def payable_total(approved_amounts: Sequence[Decimal]) -> Decimal:
     Rejected lines are never passed in; a claim with no approved lines has
     a payable total of zero.
     """
-    cents = sum((amount * 100 for amount in approved_amounts), Decimal("0"))
-    return cents.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    total = sum(approved_amounts, Decimal("0.00"))
+    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class ClaimStatus(Enum):
