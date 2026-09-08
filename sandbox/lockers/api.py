@@ -126,6 +126,15 @@ def _iso(dt: datetime) -> str:
     return dt.isoformat()
 
 
+def _format_retry_after(seconds: int) -> str:
+    minutes, secs = divmod(seconds, 60)
+    if minutes and secs:
+        return f"{minutes}m {secs}s"
+    if minutes:
+        return f"{minutes}m"
+    return f"{secs}s"
+
+
 app = FastAPI(title="Lockers", version="0.1.0")
 
 
@@ -159,13 +168,7 @@ def pickup_parcel(locker_id: int, body: PickupRequest, service: PickupServiceDep
     except Expired as exc:
         raise HTTPException(status.HTTP_410_GONE, str(exc)) from exc
     except LockedOut as exc:
-        minutes, seconds = divmod(exc.retry_after_seconds, 60)
-        if minutes and seconds:
-            human = f"{minutes}m {seconds}s"
-        elif minutes:
-            human = f"{minutes}m"
-        else:
-            human = f"{seconds}s"
+        human = _format_retry_after(exc.retry_after_seconds)
         raise HTTPException(
             status.HTTP_423_LOCKED,
             f"locker {locker_id} is locked out, try again in {human}",
