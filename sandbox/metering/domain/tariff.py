@@ -75,6 +75,13 @@ def consumption(
     return (max_reading - previous_reading) + current_reading
 
 
+def adjustment_amount(original_amount: Decimal, recomputed_amount: Decimal) -> Decimal:
+    """Signed adjustment amount, quantized to cents: positive when the
+    correction raised the bill and more is owed, negative when it
+    lowered the bill and a credit is due."""
+    return (original_amount - recomputed_amount).quantize(CENTS, rounding=ROUND_HALF_UP)
+
+
 def charge_for(kwh: Decimal, tariff: Tariff, days: int) -> Decimal:
     """Charge for `kwh` over `days` days under `tariff`. Bands apply
     progressively: each band's worth of kWh at its own rate, in order,

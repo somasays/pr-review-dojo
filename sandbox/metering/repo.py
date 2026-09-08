@@ -140,3 +140,24 @@ class BillRepo:
     def for_account(self, account_id: int) -> Sequence[Bill]:
         stmt = select(Bill).where(Bill.account_id == account_id).order_by(Bill.period_start)
         return self.session.scalars(stmt).all()
+
+    def affected_by(
+        self, account_id: int, taken_at: datetime, *, meter_id: int | None = None
+    ) -> Sequence[Bill]:
+        """Original bills for account_id whose period covers taken_at."""
+        at_date = taken_at.date()
+        stmt = select(Bill).where(
+            Bill.account_id == account_id,
+            Bill.period_start <= at_date,
+            Bill.period_end >= at_date,
+            Bill.adjusts_bill_id.is_(None),
+        )
+        return self.session.scalars(stmt).all()
+
+    def for_correction(self, adjusts_bill_id: int, correction_reading_id: int) -> Bill | None:
+        """The adjustment already issued for this (bill, correction) pair, if any."""
+        stmt = select(Bill).where(
+            Bill.adjusts_bill_id == adjusts_bill_id,
+            Bill.correction_reading_id == correction_reading_id,
+        )
+        return self.session.scalars(stmt).first()

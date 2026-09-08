@@ -121,6 +121,7 @@ class BillOut(BaseModel):
     kwh: Decimal
     amount: Decimal
     generated_at: datetime
+    adjusts_bill_id: int | None
 
 
 app = FastAPI(title="Metering", version="0.1.0")
@@ -179,6 +180,19 @@ def list_bills(account_id: int, identity: Identity, db: DbSession) -> Sequence[B
     if role == "customer" and account.email != email:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "not allowed to view this account's bills")
     return BillRepo(db).for_account(account_id)
+
+
+@app.post("/readings/{reading_id}/adjustments", response_model=list[BillOut])
+def apply_correction(reading_id: int, identity: Identity, db: DbSession) -> Sequence[Bill]:
+    """Recompute every bill affected by the correction `reading_id` and
+    issue an adjustment for each one whose amount changed."""
+    _role, email = identity
+    try:
+        return BillingService(db).apply_correction(email, reading_id, DEFAULT_TARIFF)
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except NotAllowed as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
 @app.get("/meters/{serial}/latest", response_model=ReadingOut)

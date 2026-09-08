@@ -16,7 +16,13 @@ from sqlalchemy.orm import Session
 
 from sandbox.metering.db import Bill, Reading, ensure_aware_utc
 from sandbox.metering.domain.tariff import InvalidReading as DomainInvalidReading
-from sandbox.metering.domain.tariff import Tariff, charge_for, consumption, period_days
+from sandbox.metering.domain.tariff import (
+    Tariff,
+    adjustment_amount,
+    charge_for,
+    consumption,
+    period_days,
+)
 from sandbox.metering.repo import AccountRepo, BillRepo, MeterRepo, ReadingRepo
 
 
@@ -147,3 +153,65 @@ class BillingService:
             generated_at=datetime.now(UTC),
         )
         return self.bills.add(bill)
+
+    def apply_correction(self, reader_email: str, reading_id: int, tariff: Tariff) -> list[Bill]:
+        """Recompute every bill whose period covers the correction
+        `reading_id` and append a new bill for the difference, pointing
+        `adjusts_bill_id` at the original. The original bill is never
+        modified."""
+        del reader_email
+
+        corrected = self.readings.get(reading_id)
+        if corrected is None:
+            raise NotFound(f"reading {reading_id} not found")
+        if corrected.supersedes_id is None:
+            raise NotAllowed(f"reading {reading_id} is not a correction")
+
+        meter = self.meters.get(corrected.meter_id)
+        if meter is None:
+            raise NotFound(f"meter {corrected.meter_id} not found")
+        account = self.accounts.get(meter.account_id)
+        if account is None:
+            raise NotFound(f"account {meter.account_id} not found")
+
+        issued: list[Bill] = []
+        for original in self.bills.affected_by(account.id, corrected.taken_at):
+            recomputed_kwh = self._kwh_for_period(
+                account.id, original.period_start, original.period_end
+            )
+            days = period_days(original.period_start, original.period_end)
+            recomputed_amount = charge_for(recomputed_kwh, tariff, days)
+            delta = adjustment_amount(original.amount, recomputed_amount)
+            if delta == Decimal("0.00"):
+                continue
+
+            adjustment = self.bills.add(
+                Bill(
+                    account_id=account.id,
+                    period_start=original.period_start,
+                    period_end=original.period_end,
+                    kwh=recomputed_kwh - original.kwh,
+                    amount=delta,
+                    generated_at=datetime.now(UTC),
+                    adjusts_bill_id=original.id,
+                    correction_reading_id=corrected.id,
+                )
+            )
+            issued.append(adjustment)
+        return issued
+
+    def _kwh_for_period(self, account_id: int, period_start: date, period_end: date) -> Decimal:
+        """Total consumption for account_id over [period_start, period_end)."""
+        start_at = datetime.combine(period_start, datetime.min.time(), tzinfo=UTC)
+        end_at = datetime.combine(period_end, datetime.min.time(), tzinfo=UTC)
+        total_kwh = Decimal("0.000")
+        for meter in self.meters.for_account(account_id):
+            opening = self.readings.latest_at_or_before(meter.id, start_at)
+            closing = self.readings.latest_at_or_before(meter.id, end_at)
+            if opening is None or closing is None or closing.id == opening.id:
+                continue
+            try:
+                total_kwh += consumption(opening.value_kwh, closing.value_kwh, meter.max_reading)
+            except DomainInvalidReading as exc:
+                raise InvalidReading(str(exc)) from exc
+        return total_kwh
