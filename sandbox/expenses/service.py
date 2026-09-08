@@ -170,10 +170,11 @@ class ClaimService:
                     return claim
                 raise NotAllowed(f"claim {claim_id} is not submitted")
 
+            owner = employees.get(claim.employee_id)
+            if owner is not None and owner.email == approver_email:
+                raise NotAllowed("an approver may not decide their own claim")
+
             if not rejected_lines:
-                owner = employees.get(claim.employee_id)
-                if owner is not None and owner.email == approver_email:
-                    raise NotAllowed("an approver may not decide their own claim")
                 for line in claim.lines:
                     if approve:
                         line.outcome = "approved"
