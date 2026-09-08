@@ -74,6 +74,35 @@ class ClaimRepo:
         total = self.session.scalar(stmt)
         return Decimal(str(total)).quantize(_CENTS) if total is not None else Decimal("0.00")
 
+    def approved_month_total_for(
+        self,
+        employee_id: str,
+        category: Category,
+        year: int,
+        month: int,
+        exclude_claim_id: str,
+    ) -> Decimal:
+        """Sum of approved line amounts in this category for this
+        employee's approved or paid claims incurred in this year and
+        month, excluding the claim currently being decided."""
+        start = date(year, month, 1)
+        end = date(year, month, monthrange(year, month)[1])
+        stmt = (
+            select(func.sum(ClaimLine.amount))
+            .join(Claim, ClaimLine.claim_id == Claim.id)
+            .where(
+                Claim.employee_id == employee_id,
+                Claim.id != exclude_claim_id,
+                Claim.status.in_([ClaimStatus.APPROVED.value, ClaimStatus.PAID.value]),
+                ClaimLine.outcome == "approved",
+                ClaimLine.category == category.value,
+                ClaimLine.incurred_on >= start,
+                ClaimLine.incurred_on <= end,
+            )
+        )
+        total = self.session.scalar(stmt)
+        return Decimal(str(total)).quantize(_CENTS) if total is not None else Decimal("0.00")
+
     def submitted(self) -> Sequence[Claim]:
         """Claims awaiting a decision, oldest first."""
         stmt = (

@@ -208,8 +208,8 @@ class ClaimService:
                     key = (Category(line.category), line.incurred_on.year, line.incurred_on.month)
                     month_new_totals[key] = month_new_totals.get(key, Decimal("0.00")) + line.amount
                 for (category, year, month), new_amount in month_new_totals.items():
-                    existing_total = claims.month_total_for(
-                        claim.employee_id, category, year, month
+                    existing_total = claims.approved_month_total_for(
+                        claim.employee_id, category, year, month, exclude_claim_id=claim.id
                     )
                     if not month_total_ok(existing_total, new_amount, self.limits.get(category)):
                         raise PolicyViolation(
