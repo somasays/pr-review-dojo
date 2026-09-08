@@ -8,6 +8,7 @@ ORM rows; naive datetimes serialize as plain ISO strings with no offset.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
 from datetime import datetime
 from os import environ
@@ -59,14 +60,18 @@ def get_deposit_service(session_factory: SessionFactoryDep) -> DepositService:
 
 
 _tracker: LockoutTracker | None = None
+_tracker_lock = threading.Lock()
 
 
 def get_lockout_tracker() -> LockoutTracker:
     """The process-wide pickup lockout tracker, built on first use."""
     global _tracker
     if _tracker is None:
-        _tracker = LockoutTracker(load_lockout_policy())
-        _tracker.start()
+        with _tracker_lock:
+            if _tracker is None:
+                tracker = LockoutTracker(load_lockout_policy())
+                tracker.start()
+                _tracker = tracker
     return _tracker
 
 
