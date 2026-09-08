@@ -74,6 +74,7 @@ class BookingRepo:
         """Active bookings in `room_id` overlapping `slot`, other than `exclude_booking_id`."""
         stmt = select(Booking).where(
             Booking.room_id == room_id,
+            Booking.cancelled_at.is_(None),
             Booking.id != exclude_booking_id,
             Booking.start < slot.end,
             Booking.end > slot.start,
