@@ -118,6 +118,6 @@ def claim_outcome(approved_line_count: int, total_line_count: int) -> ClaimStatu
     """The status a decided claim lands in: rejected only when every line on
     it was rejected, approved when at least one line survives.
     """
-    if approved_line_count < total_line_count:
+    if approved_line_count == 0:
         return ClaimStatus.REJECTED
     return ClaimStatus.APPROVED
