@@ -148,7 +148,7 @@ def amend_booking(
 ) -> BookingAmendOut:
     try:
         booking, price_difference_cents = service.amend(
-            booking_id, body.start, body.end, body.member
+            booking_id, holder_email, body.start, body.end, body.member
         )
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc

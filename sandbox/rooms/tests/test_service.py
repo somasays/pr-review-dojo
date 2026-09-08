@@ -99,7 +99,7 @@ def test_amend_moves_booking_recomputes_price_and_resets_reminder(
 
     new_start = _next_half_hour(now + timedelta(hours=5))
     updated, price_difference_cents = service.amend(
-        booking.id, new_start, new_start + timedelta(hours=2), member=False
+        booking.id, "ada@example.com", new_start, new_start + timedelta(hours=2), member=False
     )
 
     assert updated.start == new_start
@@ -121,7 +121,9 @@ def test_amend_conflict_with_another_booking_raises(service: BookingService, roo
     )
 
     with pytest.raises(Conflict):
-        service.amend(booking_a.id, start_b, start_b + timedelta(minutes=30), member=False)
+        service.amend(
+            booking_a.id, "ada@example.com", start_b, start_b + timedelta(minutes=30), member=False
+        )
 
 
 def test_amend_refused_minutes_before_start(
@@ -142,7 +144,13 @@ def test_amend_refused_minutes_before_start(
 
     new_start = _next_half_hour(now + timedelta(hours=4))
     with pytest.raises(NotAllowed):
-        service.amend(booking.id, new_start, new_start + timedelta(minutes=30), member=False)
+        service.amend(
+            booking.id,
+            "ada@example.com",
+            new_start,
+            new_start + timedelta(minutes=30),
+            member=False,
+        )
 
 
 def test_amend_refused_once_the_booking_has_started(
@@ -163,11 +171,23 @@ def test_amend_refused_once_the_booking_has_started(
 
     new_start = _next_half_hour(now + timedelta(hours=4))
     with pytest.raises(NotAllowed):
-        service.amend(booking.id, new_start, new_start + timedelta(minutes=30), member=False)
+        service.amend(
+            booking.id,
+            "ada@example.com",
+            new_start,
+            new_start + timedelta(minutes=30),
+            member=False,
+        )
 
 
 def test_amend_unknown_booking_raises_not_found(service: BookingService) -> None:
     now = datetime.now(UTC)
     new_start = _next_half_hour(now + timedelta(hours=4))
     with pytest.raises(NotFound):
-        service.amend("no-such-booking", new_start, new_start + timedelta(minutes=30), member=False)
+        service.amend(
+            "no-such-booking",
+            "ada@example.com",
+            new_start,
+            new_start + timedelta(minutes=30),
+            member=False,
+        )

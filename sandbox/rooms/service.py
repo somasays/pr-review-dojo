@@ -45,7 +45,12 @@ class BookingService:
         return self.bookings.add(booking)
 
     def amend(
-        self, booking_id: str, new_start: datetime, new_end: datetime, member: bool
+        self,
+        booking_id: str,
+        holder_email: str,
+        new_start: datetime,
+        new_end: datetime,
+        member: bool,
     ) -> tuple[Booking, int]:
         """Move or extend an active booking to a new slot in the same room.
 
@@ -55,6 +60,8 @@ class BookingService:
         booking = self.bookings.get(booking_id)
         if booking is None or booking.cancelled_at is not None:
             raise NotFound(f"booking {booking_id!r} not found")
+        if booking.holder_email != holder_email:
+            raise NotAllowed("only the holder can amend this booking")
         room = self.rooms.get(booking.room_id)
         if room is None or not room.active:
             raise NotFound(f"room {booking.room_id!r} not found or inactive")
