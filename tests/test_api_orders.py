@@ -56,3 +56,25 @@ def test_lifecycle_over_http(client):
     assert client.post(f"/orders/{oid}/cancel", headers=H).status_code == 409
     assert client.post(f"/orders/{oid}/ship", headers=A).json()["status"] == "shipped"
     assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_refund_over_http(client):
+    oid = client.post("/orders", json=_body(key="key-00000007"), headers=H).json()["id"]
+    assert client.post(f"/orders/{oid}/refund", json={}, headers=A).status_code == 409
+    client.post(f"/orders/{oid}/pay", headers=A)
+    refunded = client.post(f"/orders/{oid}/refund", json={"reason": "late"}, headers=A)
+    assert refunded.status_code == 200, refunded.text
+    assert refunded.json()["status"] == "refunded"
+    assert client.post(f"/orders/{oid}/refund", json={}, headers=H).status_code == 403
+
+
+def test_refund_preview_lists_every_line(client):
+    oid = client.post("/orders", json=_body(key="key-00000008"), headers=H).json()["id"]
+    assert client.get(f"/orders/{oid}/refund-preview", headers=H).status_code == 403
+    preview = client.get(f"/orders/{oid}/refund-preview", headers=A)
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["order_id"] == oid
+    assert body["currency"] == "USD"
+    assert [line["sku"] for line in body["lines"]] == ["WIDGET"]
+    assert client.get("/orders/999/refund-preview", headers=A).status_code == 404

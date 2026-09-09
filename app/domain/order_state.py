@@ -58,5 +58,9 @@ def is_cancellable(status: OrderStatus) -> bool:
     return can_transition(status, OrderStatus.CANCELLED)
 
 
+def is_refundable(status: OrderStatus) -> bool:
+    return can_transition(status, OrderStatus.REFUNDED)
+
+
 def allowed_targets(current: OrderStatus) -> list[OrderStatus]:
     return sorted(TRANSITIONS[current], key=lambda s: s.value)

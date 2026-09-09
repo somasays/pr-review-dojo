@@ -84,3 +84,47 @@ def test_cancel_restores_stock_and_blocks_after_payment(db, seeded, service, sen
     service.mark_paid(paid.id)
     with pytest.raises(InvalidTransition):
         service.cancel(paid.id)
+
+
+def test_refund_restores_stock_and_emails(db, seeded, service, sender):
+    c = seeded["customer"]
+    order = service.create(_cmd(c.id, key="key-00000003"))
+    db.commit()
+    service.mark_paid(order.id)
+    service.refund(order.id, reason="damaged in transit")
+    assert order.status == "refunded"
+    assert seeded["products"]["GADGET"].stock == 5
+    assert sender.sent[-1].subject == f"Order {order.id} refunded"
+    assert sender.sent[-1].dedupe_key.startswith(f"order-refunded:{order.id}")
+    assert "damaged in transit" in sender.sent[-1].body
+
+
+def test_refund_needs_a_paid_order(db, seeded, service):
+    c = seeded["customer"]
+    order = service.create(_cmd(c.id, key="key-00000004"))
+    db.commit()
+    with pytest.raises(InvalidTransition):
+        service.refund(order.id)
+
+
+def test_refund_lines_cover_every_item(db, seeded, service):
+    c = seeded["customer"]
+    order = service.create(_cmd(c.id, key="key-00000005", codes=["welcome10"]))
+    db.commit()
+    lines = service.refund_lines(order.id)
+    assert [sku for sku, _ in lines] == ["WIDGET", "GADGET"]
+    assert str(lines[1][1]) == "112.00 USD"
+
+
+def test_flag_large_refund_only_above_the_threshold(db, seeded, service):
+    c = seeded["customer"]
+    order = service.create(_cmd(c.id, key="key-00000006"))
+    order.total = Decimal("50")
+    db.commit()
+    assert service.flag_large_refund(order.id) is None
+
+    order.total = Decimal("5000")
+    db.commit()
+    row = service.flag_large_refund(order.id)
+    assert row is not None
+    assert "5000" in row
