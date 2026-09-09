@@ -39,6 +39,7 @@ class Settings:
     notify_retries: int = 3
     notify_backoff_seconds: float = 0.2
     worker_concurrency: int = 4
+    supplier_base_url: str = "http://localhost:8081"
     data_lake_root: str = "./data"
     page_size_max: int = 200
 
@@ -62,6 +63,7 @@ def load_settings() -> Settings:
         notify_retries=_int("NOTIFY_RETRIES", 3),
         notify_backoff_seconds=float(os.environ.get("NOTIFY_BACKOFF_SECONDS", "0.2")),
         worker_concurrency=_int("WORKER_CONCURRENCY", 4),
+        supplier_base_url=os.environ.get("SUPPLIER_BASE_URL", "http://localhost:8081"),
         data_lake_root=os.environ.get("DATA_LAKE_ROOT", "./data"),
         page_size_max=_int("PAGE_SIZE_MAX", 200),
     )

@@ -41,11 +41,13 @@ class QueueWorker:
         concurrency: int = 4,
         max_attempts: int = 3,
         poll_timeout: float = 0.1,
+        task_timeout: float = 30.0,
     ) -> None:
         self.queue = queue
         self.sem = asyncio.Semaphore(concurrency)
         self.max_attempts = max_attempts
         self.poll_timeout = poll_timeout
+        self.task_timeout = task_timeout
         self.handlers: dict[str, Handler | AsyncHandler] = {}
         self.stats = WorkerStats()
         self._stop = asyncio.Event()
@@ -59,8 +61,18 @@ class QueueWorker:
 
     async def _invoke(self, handler: Handler | AsyncHandler, payload: dict[str, Any]) -> Any:
         if asyncio.iscoroutinefunction(handler):
-            return await handler(payload)
-        return await asyncio.to_thread(handler, payload)
+            call = handler(payload)
+        else:
+            call = asyncio.to_thread(handler, payload)
+        return await asyncio.wait_for(call, timeout=self.task_timeout)
+
+    async def _retry_or_fail(self, task: Task, exc: BaseException) -> None:
+        if task.attempt < self.max_attempts:
+            self.stats.retried += 1
+            await self.queue.put(Task(task.kind, task.payload, attempt=task.attempt + 1))
+        else:
+            self.stats.failed += 1
+            self.stats.errors.append(f"{task.kind}: {exc}")
 
     async def _handle(self, task: Task) -> None:
         async with self.sem:
@@ -74,14 +86,14 @@ class QueueWorker:
                 self.stats.processed += 1
             except asyncio.CancelledError:
                 raise
+            except TimeoutError as exc:
+                log.warning(
+                    "task %s attempt %d exceeded %.1fs", task.kind, task.attempt, self.task_timeout
+                )
+                await self._retry_or_fail(task, exc)
             except Exception as exc:
                 log.warning("task %s attempt %d failed: %s", task.kind, task.attempt, exc)
-                if task.attempt < self.max_attempts:
-                    self.stats.retried += 1
-                    await self.queue.put(Task(task.kind, task.payload, attempt=task.attempt + 1))
-                else:
-                    self.stats.failed += 1
-                    self.stats.errors.append(f"{task.kind}: {exc}")
+                await self._retry_or_fail(task, exc)
 
     async def run(self) -> None:
         """Poll until stop() is called and the queue is drained."""
@@ -94,8 +106,10 @@ class QueueWorker:
             self._inflight.add(t)
             t.add_done_callback(self._inflight.discard)
             t.add_done_callback(lambda _t: self.queue.task_done())
-        if self._inflight:
-            await asyncio.gather(*self._inflight)
+        pending = list(self._inflight)
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
 
     async def run_until_idle(self, idle_after: float = 0.3) -> None:
         """Convenience for scripts: stop once the queue has been empty for a while."""
