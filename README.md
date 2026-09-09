@@ -31,6 +31,9 @@ A ninth, self-contained practice codebase lives at `sandbox/helpdesk/`; see
 A tenth, self-contained practice codebase lives at `sandbox/newsroom/`; see
 `sandbox/newsroom/README.md` for what it is and its own conventions.
 
+An eleventh, self-contained practice codebase lives at `sandbox/adserver/`;
+see `sandbox/adserver/README.md` for what it is and its own conventions.
+
 ## Layout
 
 | Package | What it does |

@@ -50,6 +50,7 @@ files = [
     "sandbox/parking/domain",
     "sandbox/helpdesk/domain",
     "sandbox/newsroom/domain",
+    "sandbox/adserver/domain",
 ]
 strict = true
 
@@ -65,6 +66,7 @@ testpaths = [
     "sandbox/parking/tests",
     "sandbox/helpdesk/tests",
     "sandbox/newsroom/tests",
+    "sandbox/adserver/tests",
 ]
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning"]
