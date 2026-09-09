@@ -46,6 +46,16 @@ class OrderCreate(BaseModel):
         return items
 
 
+class ShipOrderRequest(BaseModel):
+    """Optional body for the ship endpoint.
+
+    Warehouse staff paste the carrier tracking number here. It is optional
+    because a few low value orders ship untracked.
+    """
+
+    tracking_id: str = Field(default="", max_length=64)
+
+
 class OrderItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -65,6 +75,8 @@ class OrderOut(BaseModel):
     tax: Decimal
     total: Decimal
     discount_code: str | None
+    tracking_id: str
+    shipped_at: datetime | None
     created_at: datetime
     items: list[OrderItemOut]
 

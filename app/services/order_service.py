@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Order, OrderItem
 from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
+from app.domain.dates import utcnow
 from app.domain.order_state import OrderStatus, is_cancellable, transition
 from app.services.notification import NotificationService
 from app.services.pricing_service import ItemRequest, PricingService
@@ -105,11 +106,20 @@ class OrderService:
             self.notifications.order_confirmed(order.customer.email, order.id, str(order.total))
         return order
 
-    def ship(self, order_id: int) -> Order:
+    def ship(self, order_id: int, tracking_id: str = "") -> Order:
+        """Move a paid order to shipped and record how it left the warehouse.
+
+        Shipping an order that is already shipped is a no-op, so a retried
+        request never overwrites the tracking id or the shipment time
+        recorded by the request that won.
+        """
         order = self.orders.get(order_id)
         was_paid = order.status == OrderStatus.PAID
         self._move(order, OrderStatus.SHIPPED)
         if was_paid:
+            order.tracking_id = tracking_id
+            order.shipped_at = utcnow()
+            self.session.flush()
             self.notifications.order_shipped(order.customer.email, order.id)
         return order
 
