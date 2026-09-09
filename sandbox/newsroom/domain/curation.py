@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 
 
@@ -62,6 +62,7 @@ class PlacementView:
     boost: int
     window_start: datetime
     window_end: datetime
+    created_by: str
 
 
 def build_home_screen(placements: Sequence[PlacementView], at: datetime) -> list[PlacementView]:
@@ -69,3 +70,23 @@ def build_home_screen(placements: Sequence[PlacementView], at: datetime) -> list
     live = [p for p in placements if is_live(p.window_start, p.window_end, at)]
     live.sort(key=lambda p: rank_key(p.published_at, p.pinned, p.boost))
     return live
+
+
+def shift_down(
+    placements_in_order: Sequence[tuple[int, int]], slot_count: int
+) -> list[tuple[int, int]]:
+    """placements_in_order: (placement id, current slot), sorted by current
+    slot ascending. Each moves one slot down; one whose new slot would fall
+    past slot_count is dropped rather than moved."""
+    moves = []
+    for placement_id, current_slot in placements_in_order:
+        new_slot = current_slot + 1
+        if new_slot > slot_count + 1:
+            continue
+        moves.append((placement_id, new_slot))
+    return moves
+
+
+def takeover_window(now: datetime, minutes: int) -> tuple[datetime, datetime]:
+    """The half-open window [now, now + minutes) a takeover holds slot 1 for."""
+    return now, now + timedelta(minutes=minutes)

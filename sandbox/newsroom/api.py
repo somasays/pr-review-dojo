@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from os import environ
 from typing import Annotated
 
@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from sandbox.newsroom.cache import HomeScreenCache, Refresher
 from sandbox.newsroom.db import Article, Placement, get_session_factory
-from sandbox.newsroom.repo import PlacementRepo
+from sandbox.newsroom.repo import ArticleRepo, PlacementRepo
 from sandbox.newsroom.service import CurationService, NotAllowed, NotFound, SlotTaken
 
 REFRESH_INTERVAL_SECONDS = 30.0
@@ -61,19 +61,21 @@ EditorEmail = Annotated[str, Depends(require_editor)]
 ServiceSessionFactory = Annotated[sessionmaker[Session], Depends(get_session_factory)]
 
 
-def get_curation_service(session_factory: ServiceSessionFactory) -> CurationService:
-    return CurationService(session_factory)
-
-
-CurationServiceDep = Annotated[CurationService, Depends(get_curation_service)]
-
-
 def get_cache(request: Request) -> HomeScreenCache:
     cache: HomeScreenCache = request.app.state.cache
     return cache
 
 
 CacheDep = Annotated[HomeScreenCache, Depends(get_cache)]
+
+
+def get_curation_service(
+    session_factory: ServiceSessionFactory, cache: CacheDep
+) -> CurationService:
+    return CurationService(session_factory, cache)
+
+
+CurationServiceDep = Annotated[CurationService, Depends(get_curation_service)]
 
 
 class PublishIn(BaseModel):
@@ -86,6 +88,11 @@ class PlacementIn(BaseModel):
     window_start: datetime
     window_end: datetime
     pinned: bool = False
+
+
+class TakeoverIn(BaseModel):
+    article_id: int
+    minutes: int | None = None
 
 
 class ArticleOut(BaseModel):
@@ -116,6 +123,7 @@ class HomeScreenSlotOut(BaseModel):
     article_id: int
     headline: str
     pinned: bool
+    created_by: str
 
 
 def create_app() -> FastAPI:
@@ -194,10 +202,42 @@ def create_app() -> FastAPI:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "home screen not ready yet")
         return [
             HomeScreenSlotOut(
-                slot=p.slot, article_id=p.article_id, headline=p.headline, pinned=p.pinned
+                slot=p.slot,
+                article_id=p.article_id,
+                headline=p.headline,
+                pinned=p.pinned,
+                created_by=p.created_by,
             )
             for p in placements
         ]
+
+    @app.post(
+        "/sections/{section_id}/takeover",
+        response_model=HomeScreenSlotOut,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def takeover_section(
+        section_id: int,
+        body: TakeoverIn,
+        editor_email: EditorEmail,
+        service: CurationServiceDep,
+        session_factory: ServiceSessionFactory,
+    ) -> HomeScreenSlotOut:
+        now = datetime.now(UTC)
+        placement = service.takeover(editor_email, section_id, body.article_id, body.minutes, now)
+        session = session_factory()
+        try:
+            article = ArticleRepo(session).get(placement.article_id)
+            headline = article.headline if article is not None else ""
+        finally:
+            session.close()
+        return HomeScreenSlotOut(
+            slot=placement.slot,
+            article_id=placement.article_id,
+            headline=headline,
+            pinned=placement.pinned,
+            created_by=placement.created_by,
+        )
 
     @app.get("/sections/{section_id}/placements", response_model=list[PlacementOut])
     def list_placements(
