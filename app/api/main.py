@@ -3,18 +3,29 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.api.deps import get_reservation_cache
 from app.api.routers import customers, orders, reports
 from app.db.repositories import NotFound
 
 log = logging.getLogger(__name__)
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    cache = get_reservation_cache()
+    cache.start()
+    log.info("reservation sweep started, holding %s", cache.held_skus())
+    yield
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="Dojo Orders", version="0.1.0")
+    app = FastAPI(title="Dojo Orders", version="0.1.0", lifespan=lifespan)
     app.include_router(customers.router)
     app.include_router(orders.router)
     app.include_router(reports.router)

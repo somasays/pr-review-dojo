@@ -41,6 +41,7 @@ class Settings:
     worker_concurrency: int = 4
     data_lake_root: str = "./data"
     page_size_max: int = 200
+    reservation_snapshot: str = ""
 
     @property
     def is_prod(self) -> bool:
@@ -64,6 +65,7 @@ def load_settings() -> Settings:
         worker_concurrency=_int("WORKER_CONCURRENCY", 4),
         data_lake_root=os.environ.get("DATA_LAKE_ROOT", "./data"),
         page_size_max=_int("PAGE_SIZE_MAX", 200),
+        reservation_snapshot=os.environ.get("RESERVATION_SNAPSHOT", ""),
     )
 
 

@@ -13,11 +13,12 @@ from dataclasses import dataclass
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import Order, OrderItem
+from app.db.models import Order, OrderItem, Product
 from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
 from app.domain.order_state import OrderStatus, is_cancellable, transition
 from app.services.notification import NotificationService
-from app.services.pricing_service import ItemRequest, PricingService
+from app.services.pricing_service import InsufficientStock, ItemRequest, PricingService
+from app.services.reservations import Hold, ReservationCache
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class OrderService:
         session: Session,
         pricing: PricingService,
         notifications: NotificationService,
+        reservations: ReservationCache | None = None,
     ) -> None:
         self.session = session
         self.orders = OrderRepository(session)
@@ -43,6 +45,7 @@ class OrderService:
         self.products = ProductRepository(session)
         self.pricing = pricing
         self.notifications = notifications
+        self.reservations = reservations
 
     def create(self, cmd: CreateOrderCommand) -> Order:
         existing = self.orders.by_idempotency_key(cmd.customer_id, cmd.idempotency_key)
@@ -74,20 +77,47 @@ class OrderService:
             )
             for i in cmd.items
         ]
-        for i in cmd.items:
-            products[i.sku].stock -= i.quantity
-
+        holds = self._hold_stock(cmd.items, products)
         try:
-            with self.session.begin_nested():
-                self.orders.add(order, items)
-        except IntegrityError:
-            # Lost a race with a concurrent request using the same key.
-            log.info("concurrent create for key %s, returning winner", cmd.idempotency_key)
-            self.session.rollback()
-            winner = self.orders.by_idempotency_key(cmd.customer_id, cmd.idempotency_key)
-            assert winner is not None
-            return winner
+            for i in cmd.items:
+                products[i.sku].stock -= i.quantity
+
+            try:
+                with self.session.begin_nested():
+                    self.orders.add(order, items)
+            except IntegrityError:
+                # Lost a race with a concurrent request using the same key.
+                log.info("concurrent create for key %s, returning winner", cmd.idempotency_key)
+                self.session.rollback()
+                winner = self.orders.by_idempotency_key(cmd.customer_id, cmd.idempotency_key)
+                assert winner is not None
+                return winner
+        finally:
+            # The stock is on the order now, so the short lived holds can go.
+            self._release_holds(holds)
         return order
+
+    def _hold_stock(self, items: list[ItemRequest], products: dict[str, Product]) -> list[Hold]:
+        """Hold every line so a concurrent checkout cannot take the same units."""
+        if self.reservations is None:
+            return []
+        holds: list[Hold] = []
+        for item in items:
+            stock = products[item.sku].stock
+            hold = self.reservations.reserve(item.sku, item.quantity, stock)
+            if hold is None:
+                self._release_holds(holds)
+                raise InsufficientStock(
+                    item.sku, item.quantity, self.reservations.available(item.sku, stock)
+                )
+            holds.append(hold)
+        return holds
+
+    def _release_holds(self, holds: list[Hold]) -> None:
+        if self.reservations is None:
+            return
+        for hold in holds:
+            self.reservations.release(hold.token)
 
     def _move(self, order: Order, target: OrderStatus) -> Order:
         current = OrderStatus(order.status)
