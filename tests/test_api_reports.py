@@ -16,3 +16,16 @@ def test_by_status_and_recent_total(client):
     t = client.get("/reports/orders/recent-total?days=1", headers=A).json()
     assert t["orders"] == 1
     assert t["total"] == "21.44"
+
+
+def test_order_activity(client):
+    body = {"idempotency_key": "key-00000002", "items": [{"sku": "WIDGET", "quantity": 1}]}
+    client.post("/orders", json=body, headers=H)
+    r = client.get("/reports/orders/activity?days=7&include_today=true", headers=A)
+    assert r.status_code == 200
+    out = r.json()
+    assert out["orders"] == 1
+    assert out["active_days"] == 1
+    assert len(out["active_periods"]) == 1
+    assert out["first_active_day"] == out["last_active_day"]
+    assert out["weekly_orders"][0]["orders"] == 1
