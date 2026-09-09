@@ -57,6 +57,20 @@ def shift_minutes(start: datetime, end: datetime) -> int:
     return int(minutes)
 
 
+def local_midnight_after(start_utc: datetime, tz: str) -> datetime:
+    """The UTC instant of the next local midnight strictly after
+    `start_utc`, in `tz`. This is where a shift that crosses the worker's
+    local midnight must be split so each part belongs to its own local
+    day."""
+    _ensure_aware(start_utc)
+    zone = ZoneInfo(tz)
+    start_local = start_utc.astimezone(zone)
+    hours_to_midnight = _MINUTES_PER_DAY / _MINUTES_PER_HOUR - (
+        start_local.hour + start_local.minute / _MINUTES_PER_HOUR
+    )
+    return start_utc + timedelta(hours=hours_to_midnight)
+
+
 def _night_window_duration_hours(rules: Rules) -> int:
     duration = (rules.night_end_hour - rules.night_start_hour) % 24
     return duration or 24

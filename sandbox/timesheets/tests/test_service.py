@@ -34,6 +34,11 @@ def _la_utc(y: int, m: int, d: int, h: int, mi: int = 0) -> datetime:
     return local.astimezone(UTC)
 
 
+def _ny_utc(y: int, m: int, d: int, h: int, mi: int = 0) -> datetime:
+    local = datetime(y, m, d, h, mi, tzinfo=ZoneInfo("America/New_York"))
+    return local.astimezone(UTC)
+
+
 def test_record_creates_the_open_timesheet_for_the_shifts_local_period(
     session_factory: sessionmaker[Session], seeded, db: Session
 ) -> None:
@@ -63,6 +68,59 @@ def test_record_rejects_overlap_and_shifts_on_a_non_open_timesheet(
 
     with pytest.raises(NotAllowed):
         service.record(WORKER_EMAIL, _la_utc(2026, 1, 5, 14), _la_utc(2026, 1, 5, 16), None)
+
+
+def test_record_splits_a_shift_crossing_local_midnight(
+    session_factory: sessionmaker[Session], seeded, db: Session
+) -> None:
+    service = ShiftService(session_factory)
+    shift = service.record(WORKER_EMAIL, _la_utc(2026, 1, 5, 22), _la_utc(2026, 1, 6, 2), "late")
+
+    timesheet = TimesheetRepo(db).current_for(seeded["priya"].id, PERIOD_START)
+    assert timesheet is not None
+    rows = ShiftRepo(db).for_timesheet(timesheet.id)
+    assert len(rows) == 2
+    assert {row.group_id for row in rows} == {shift.id}
+    assert sorted(row.minutes for row in rows) == [120, 120]
+
+
+def test_record_does_not_split_a_shift_within_one_local_day(
+    session_factory: sessionmaker[Session], seeded, db: Session
+) -> None:
+    service = ShiftService(session_factory)
+    shift = service.record(WORKER_EMAIL, _la_utc(2026, 1, 5, 8), _la_utc(2026, 1, 5, 16), None)
+
+    assert shift.group_id is None
+    timesheet = TimesheetRepo(db).current_for(seeded["priya"].id, PERIOD_START)
+    assert timesheet is not None
+    assert len(ShiftRepo(db).for_timesheet(timesheet.id)) == 1
+
+
+def test_record_splits_a_shift_for_a_worker_in_a_different_timezone(
+    session_factory: sessionmaker[Session], seeded, db: Session
+) -> None:
+    service = ShiftService(session_factory)
+    shift = service.record(NY_WORKER_EMAIL, _ny_utc(2026, 1, 5, 21), _ny_utc(2026, 1, 6, 1), None)
+
+    timesheet = TimesheetRepo(db).current_for(seeded["sam"].id, PERIOD_START)
+    assert timesheet is not None
+    rows = ShiftRepo(db).for_timesheet(timesheet.id)
+    assert len(rows) == 2
+    assert {row.group_id for row in rows} == {shift.id}
+    assert sorted(row.minutes for row in rows) == [60, 180]
+
+
+def test_submit_totals_a_split_shift_across_its_two_local_days(
+    session_factory: sessionmaker[Session], seeded
+) -> None:
+    shift_service = ShiftService(session_factory)
+    shift_service.record(WORKER_EMAIL, _la_utc(2026, 1, 5, 22), _la_utc(2026, 1, 6, 2), None)
+
+    timesheet = TimesheetService(session_factory).submit(WORKER_EMAIL, PERIOD_START)
+
+    # 4 hours total, entirely inside the 22:00-06:00 night window, split
+    # evenly across the two local days: no overtime either day.
+    assert timesheet.total_pay == Decimal("99.00")
 
 
 def test_submit_computes_daily_weekly_overtime_and_night_pay(
