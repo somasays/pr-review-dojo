@@ -46,6 +46,7 @@ files = [
     "sandbox/library/domain",
     "sandbox/expenses/domain",
     "sandbox/metering/domain",
+    "sandbox/timesheets/domain",
 ]
 strict = true
 
@@ -57,6 +58,7 @@ testpaths = [
     "sandbox/library/tests",
     "sandbox/expenses/tests",
     "sandbox/metering/tests",
+    "sandbox/timesheets/tests",
 ]
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning"]
