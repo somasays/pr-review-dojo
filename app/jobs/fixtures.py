@@ -9,9 +9,10 @@ from decimal import Decimal
 
 from pyspark.sql import SparkSession
 
-from app.jobs.schemas import ORDERS_SCHEMA
+from app.jobs.schemas import CUSTOMERS_SCHEMA, ORDERS_SCHEMA
 
 STATUSES = ["paid", "paid", "shipped", "cancelled", "pending_payment", "delivered"]
+REGIONS = ["US-CA", "US-NY", "EU-DE"]
 
 
 def orders_rows(days: int = 3, per_day: int = 6, start: datetime | None = None) -> list[tuple]:
@@ -40,6 +41,21 @@ def write_orders_fixture(spark: SparkSession, root: str, days: int = 3) -> str:
     path = f"{root}/orders"
     df = spark.createDataFrame(orders_rows(days=days), ORDERS_SCHEMA)
     df.write.mode("overwrite").partitionBy("dt").parquet(path)
+    return path
+
+
+def customers_rows(count: int = 3) -> list[tuple]:
+    """One row per customer, matching the customer ids in orders_rows."""
+    return [
+        (customer_id, f"Customer {customer_id}", REGIONS[(customer_id - 1) % len(REGIONS)])
+        for customer_id in range(1, count + 1)
+    ]
+
+
+def write_customers_fixture(spark: SparkSession, root: str, count: int = 3) -> str:
+    path = f"{root}/customers"
+    df = spark.createDataFrame(customers_rows(count=count), CUSTOMERS_SCHEMA)
+    df.write.mode("overwrite").parquet(path)
     return path
 
 

@@ -43,3 +43,22 @@ DAILY_CUSTOMER_SCHEMA = StructType(
         StructField("dt", StringType(), False),
     ]
 )
+
+CUSTOMERS_SCHEMA = StructType(
+    [
+        StructField("customer_id", IntegerType(), False),
+        StructField("name", StringType(), False),
+        StructField("region", StringType(), False),
+    ]
+)
+
+WEEKLY_CUSTOMER_SCHEMA = StructType(
+    [
+        StructField("customer_id", IntegerType(), False),
+        StructField("region", StringType(), False),
+        StructField("order_count", IntegerType(), False),
+        StructField("paid_total", DecimalType(14, 2), False),
+        StructField("cancelled_count", IntegerType(), False),
+        StructField("week_start", StringType(), False),
+    ]
+)
