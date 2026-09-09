@@ -42,6 +42,19 @@ class Booking(Base):
     reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class Waitlist(Base):
+    __tablename__ = "waitlist"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), nullable=False)
+    holder_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    member: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    fulfilled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 def _database_url() -> str:
     return environ.get("ROOMS_DATABASE_URL", "sqlite://")
 

@@ -61,3 +61,49 @@ def test_availability_excludes_booked_slot(client: TestClient, room: Room) -> No
     assert "2026-09-08T09:30:00Z" not in starts
     assert "2026-09-08T08:30:00Z" in starts
     assert len(free) == 46
+
+
+def test_create_recurring_booking_returns_one_per_week(client: TestClient, room: Room) -> None:
+    resp = client.post(
+        "/bookings/recurring",
+        json={
+            "room_id": room.id,
+            "start": "2026-09-08T09:00:00Z",
+            "end": "2026-09-08T10:00:00Z",
+            "weeks": 4,
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert len(body) == 4
+    assert all(b["holder_email"] == HOLDER_EMAIL for b in body)
+
+
+def test_join_waitlist_and_get_promoted_on_cancel(
+    client: TestClient, room: Room, monkeypatch
+) -> None:
+    created = client.post(
+        "/bookings",
+        json={"room_id": room.id, "start": "2026-09-08T09:00:00Z", "end": "2026-09-08T10:00:00Z"},
+        headers=AUTH,
+    )
+    booking_id = created.json()["id"]
+
+    monkeypatch.setenv("ROOMS_API_KEYS", f"{HOLDER_EMAIL}:{TEST_API_KEY},bea@example.com:bea-key")
+    joined = client.post(
+        f"/rooms/{room.id}/waitlist",
+        json={"start": "2026-09-08T09:00:00Z", "end": "2026-09-08T10:00:00Z"},
+        headers={"X-API-Key": "bea-key"},
+    )
+    assert joined.status_code == 201
+
+    listing = client.get(f"/rooms/{room.id}/waitlist", headers=AUTH)
+    assert listing.status_code == 200
+    assert len(listing.json()) == 1
+
+    client.delete(f"/bookings/{booking_id}", headers=AUTH)
+
+    resp = client.get(f"/rooms/{room.id}/availability", params={"day": "2026-09-08"}, headers=AUTH)
+    starts = {slot["start"] for slot in resp.json()["free_slots"]}
+    assert "2026-09-08T09:00:00Z" not in starts

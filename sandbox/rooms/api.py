@@ -13,12 +13,13 @@ from os import environ
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from sandbox.rooms.db import Booking, get_session_factory
-from sandbox.rooms.domain.slots import Slot
-from sandbox.rooms.repo import BookingRepo, RoomRepo
+from sandbox.rooms.db import Booking, Waitlist, get_session_factory
+from sandbox.rooms.domain.slots import MAX_RECURRING_WEEKS, Slot
+from sandbox.rooms.repo import BookingRepo, RoomRepo, WaitlistRepo
 from sandbox.rooms.service import BookingService, Conflict, NotAllowed, NotFound
 
 
@@ -56,7 +57,7 @@ HolderEmail = Annotated[str, Depends(get_holder_email)]
 
 
 def get_service(db: DbSession) -> BookingService:
-    return BookingService(RoomRepo(db), BookingRepo(db))
+    return BookingService(RoomRepo(db), BookingRepo(db), WaitlistRepo(db))
 
 
 Service = Annotated[BookingService, Depends(get_service)]
@@ -69,6 +70,21 @@ class BookingCreate(BaseModel):
     member: bool = False
 
 
+class RecurringBookingCreate(BaseModel):
+    room_id: str
+    start: datetime
+    end: datetime
+    weeks: Annotated[int, Field(ge=1, le=MAX_RECURRING_WEEKS)]
+    member: bool = False
+
+
+class WaitlistJoin(BaseModel):
+    start: datetime
+    end: datetime
+    member: bool = False
+    holder_email: str | None = None
+
+
 class BookingOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -79,6 +95,15 @@ class BookingOut(BaseModel):
     end: datetime
     price_cents: int
     cancelled_at: datetime | None
+
+
+class WaitlistOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    start: datetime
+    end: datetime
+    created_at: datetime
 
 
 class FreeSlotOut(BaseModel):
@@ -123,6 +148,23 @@ def create_booking(body: BookingCreate, holder_email: HolderEmail, service: Serv
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
+@app.post(
+    "/bookings/recurring", response_model=list[BookingOut], status_code=status.HTTP_201_CREATED
+)
+def create_recurring_booking(
+    body: RecurringBookingCreate, holder_email: HolderEmail, service: Service
+) -> list[Booking]:
+    first_slot = Slot(body.start, body.end)
+    try:
+        return service.book_recurring(
+            body.room_id, holder_email, first_slot, body.weeks, body.member
+        )
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except Conflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
 @app.get("/bookings/{booking_id}", response_model=BookingOut)
 def get_booking(booking_id: str, _holder_email: HolderEmail, db: DbSession) -> Booking:
     booking = BookingRepo(db).get(booking_id)
@@ -139,6 +181,33 @@ def cancel_booking(booking_id: str, holder_email: HolderEmail, service: Service)
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except NotAllowed as exc:
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+
+
+@app.post(
+    "/rooms/{room_id}/waitlist", response_model=WaitlistOut, status_code=status.HTTP_201_CREATED
+)
+def join_waitlist(
+    room_id: str, body: WaitlistJoin, holder_email: HolderEmail, service: Service
+) -> Waitlist:
+    slot = Slot(body.start, body.end)
+    # A member can add a colleague who wants the same recurring slot.
+    effective_holder = body.holder_email or holder_email
+    try:
+        return service.join_waitlist(room_id, effective_holder, slot, body.member)
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+
+@app.get("/rooms/{room_id}/waitlist", response_model=list[WaitlistOut])
+def get_room_waitlist(
+    room_id: str, _holder_email: HolderEmail, db: DbSession
+) -> Sequence[Waitlist]:
+    stmt = (
+        select(Waitlist)
+        .where(Waitlist.room_id == room_id, Waitlist.fulfilled_at.is_(None))
+        .order_by(Waitlist.created_at)
+    )
+    return db.scalars(stmt).all()
 
 
 @app.get("/rooms/{room_id}/availability", response_model=AvailabilityOut)
