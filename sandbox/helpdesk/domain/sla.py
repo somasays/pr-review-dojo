@@ -38,7 +38,7 @@ def escalation_level(due_at: datetime, now: datetime) -> int:
 def has_capacity(open_count: int, capacity: int) -> bool:
     """True while an agent holding `open_count` claimed tickets has room
     for one more, given their `capacity`."""
-    return open_count <= capacity
+    return open_count < capacity
 
 
 class TicketStatus(Enum):

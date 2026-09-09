@@ -122,8 +122,8 @@ class MetricsOut(BaseModel):
 
 
 @asynccontextmanager
-async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    assigner = AutoAssigner(get_session_factory(), ASSIGNER_INTERVAL_SECONDS)
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    assigner = AutoAssigner(get_session_factory(), ASSIGNER_INTERVAL_SECONDS, app.state.metrics)
     assigner.start()
     yield
     assigner.stop()

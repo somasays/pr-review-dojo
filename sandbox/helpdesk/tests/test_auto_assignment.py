@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -10,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sandbox.helpdesk.assigner import AutoAssigner
 from sandbox.helpdesk.db import Agent
 from sandbox.helpdesk.domain.sla import Priority
+from sandbox.helpdesk.metrics import QueueMetrics
 from sandbox.helpdesk.repo import TicketRepo
 from sandbox.helpdesk.service import NotAllowed, TicketService
 from sandbox.helpdesk.tests.conftest import LEAD_EMAIL
@@ -57,12 +57,8 @@ def test_auto_assigner_assigns_the_oldest_ticket(
     older = service.create("older ticket", Priority.LOW, NOW - timedelta(minutes=5))
     service.create("newer ticket", Priority.LOW, NOW)
 
-    assigner = AutoAssigner(session_factory, interval_seconds=0.05)
-    assigner.start()
-    time.sleep(0.3)
-    assigner.stop()
-    assert assigner._thread is not None
-    assigner._thread.join(timeout=1)
+    assigner = AutoAssigner(session_factory, interval_seconds=30, metrics=QueueMetrics())
+    assigner.run_once(NOW)
 
     with session_factory() as check:
         refreshed = TicketRepo(check).get(older.id)

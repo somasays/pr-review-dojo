@@ -4,11 +4,11 @@ active agent with the most remaining capacity, once per interval."""
 from __future__ import annotations
 
 import threading
-import time
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from sandbox.helpdesk.db import unit_of_work
 from sandbox.helpdesk.domain.sla import TicketStatus, has_capacity
 from sandbox.helpdesk.domain.sla import transition as transition_status
 from sandbox.helpdesk.metrics import QueueMetrics
@@ -18,12 +18,16 @@ BATCH_LIMIT = 20
 
 
 class AutoAssigner:
-    def __init__(self, session_factory: sessionmaker[Session], interval_seconds: float) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        interval_seconds: float,
+        metrics: QueueMetrics,
+    ) -> None:
         self.session_factory = session_factory
         self.interval_seconds = interval_seconds
-        self._session = session_factory()
-        self._metrics = QueueMetrics()
-        self._stopped = False
+        self.metrics = metrics
+        self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
@@ -31,17 +35,21 @@ class AutoAssigner:
         self._thread.start()
 
     def stop(self) -> None:
-        self._stopped = True
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join()
 
     def _run(self) -> None:
-        while not self._stopped:
-            time.sleep(self.interval_seconds)
-            self._assign_batch()
+        while not self._stop_event.wait(timeout=self.interval_seconds):
+            self.run_once(datetime.now(UTC))
 
-    def _assign_batch(self) -> None:
-        now = datetime.now(UTC)
-        tickets = TicketRepo(self._session)
-        agents = AgentRepo(self._session)
+    def run_once(self, now: datetime) -> None:
+        with unit_of_work(self.session_factory) as session:  # own session per iteration
+            self._assign_batch(session, now)
+
+    def _assign_batch(self, session: Session, now: datetime) -> None:
+        tickets = TicketRepo(session)
+        agents = AgentRepo(session)
         for ticket in tickets.unassigned_oldest_first(BATCH_LIMIT):
             best_agent = None
             best_remaining = -1
@@ -58,5 +66,4 @@ class AutoAssigner:
             ticket.agent_id = best_agent.id
             ticket.status = transition_status(TicketStatus.OPEN, TicketStatus.CLAIMED).value
             ticket.claimed_at = now
-            self._metrics.record("assigned")
-        self._session.commit()
+            self.metrics.record("assigned")

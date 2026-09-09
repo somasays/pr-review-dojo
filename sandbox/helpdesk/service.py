@@ -3,12 +3,13 @@ Each public method opens exactly one unit of work."""
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from datetime import datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from sandbox.helpdesk.db import Ticket, ensure_aware_utc, unit_of_work
+from sandbox.helpdesk.db import Agent, Ticket, ensure_aware_utc, unit_of_work
 from sandbox.helpdesk.domain.sla import (
     InvalidTransition,
     Priority,
@@ -33,12 +34,23 @@ class AlreadyClaimed(Exception):
 
 
 class TicketService:
+    _capacity_lock = threading.Lock()  # guards the count-then-write in claim
     # Test seam: called right after the open-ticket count is read in
     # `claim`, before capacity is checked. A no-op in production.
     _after_count: Callable[[], None] = staticmethod(lambda: None)
 
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.session_factory = session_factory
+
+    def _assign_ticket(self, session: Session, ticket: Ticket, agent: Agent, now: datetime) -> None:
+        open_count = TicketRepo(session).open_count_for_agent(agent.id)
+        self._after_count()
+        if not has_capacity(open_count, agent.capacity):
+            raise NotAllowed(f"{agent.email!r} is at capacity")
+        ticket.agent_id = agent.id
+        if TicketStatus(ticket.status) is TicketStatus.OPEN:
+            ticket.status = transition_status(TicketStatus.OPEN, TicketStatus.CLAIMED).value
+        ticket.claimed_at = now
 
     def create(self, subject: str, priority: Priority, now: datetime) -> Ticket:
         """Open a ticket, due time computed from its priority."""
@@ -57,7 +69,7 @@ class TicketService:
         """Raises AlreadyClaimed if the ticket is not open, NotAllowed if
         the agent is already at capacity."""
         ensure_aware_utc(now)
-        with unit_of_work(self.session_factory) as session:
+        with self._capacity_lock, unit_of_work(self.session_factory) as session:
             agent = AgentRepo(session).by_email(agent_email)
             if agent is None or not agent.active:
                 raise NotFound(f"agent {agent_email!r} not found or inactive")
@@ -68,14 +80,7 @@ class TicketService:
             if TicketStatus(ticket.status) is not TicketStatus.OPEN:
                 raise AlreadyClaimed(f"ticket {ticket_id} is not open")
 
-            open_count = TicketRepo(session).open_count_for_agent(agent.id)
-            self._after_count()
-            if not has_capacity(open_count, agent.capacity):
-                raise NotAllowed(f"{agent_email!r} is at capacity")
-
-            ticket.agent_id = agent.id
-            ticket.status = transition_status(TicketStatus.OPEN, TicketStatus.CLAIMED).value
-            ticket.claimed_at = now
+            self._assign_ticket(session, ticket, agent, now)
             session.flush()
             return ticket
 
@@ -94,14 +99,7 @@ class TicketService:
             if agent is None or not agent.active:
                 raise NotFound(f"agent {agent_email!r} not found or inactive")
 
-            open_count = TicketRepo(session).open_count_for_agent(agent.id)
-            if not has_capacity(open_count, agent.capacity):
-                raise NotAllowed(f"{agent_email!r} is at capacity")
-
-            ticket.agent_id = agent.id
-            if TicketStatus(ticket.status) is TicketStatus.OPEN:
-                ticket.status = transition_status(TicketStatus.OPEN, TicketStatus.CLAIMED).value
-            ticket.claimed_at = now
+            self._assign_ticket(session, ticket, agent, now)
             session.flush()
             return ticket
 
