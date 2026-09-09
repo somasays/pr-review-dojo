@@ -38,17 +38,20 @@ class ItemRepo:
         return self.session.get(Item, item_id)
 
     def available_copies(self, item_id: int) -> int:
-        """The item's copies minus its currently active loans."""
+        """The item's copies minus its currently active or lost loans."""
         item = self.get(item_id)
         if item is None:
             return 0
         stmt = (
             select(func.count())
             .select_from(Loan)
-            .where(Loan.item_id == item_id, Loan.status == LoanStatus.ACTIVE.value)
+            .where(
+                Loan.item_id == item_id,
+                Loan.status.in_([LoanStatus.ACTIVE.value, LoanStatus.LOST.value]),
+            )
         )
-        active_loans = self.session.scalar(stmt) or 0
-        return item.copies - active_loans
+        unavailable = self.session.scalar(stmt) or 0
+        return item.copies - unavailable
 
 
 class LoanRepo:

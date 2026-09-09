@@ -14,7 +14,14 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from sandbox.library.db import Hold, Loan, ensure_aware_utc
-from sandbox.library.domain.lending import LoanStatus, due_date, fine_for, transition
+from sandbox.library.domain.lending import (
+    LoanStatus,
+    can_reverse_loss,
+    due_date,
+    fine_for,
+    replacement_fee_for,
+    transition,
+)
 from sandbox.library.repo import HoldRepo, ItemRepo, LoanRepo, PatronRepo
 
 LOAN_DAYS = 14
@@ -23,6 +30,8 @@ GRACE_DAYS = 2
 FINE_PER_DAY = Decimal("0.25")
 FINE_CAP = Decimal("10.00")
 MAX_RENEWALS = 2
+REPLACEMENT_FEE_CAP = Decimal("75.00")
+REVERSAL_WINDOW_DAYS = 21
 
 
 class NotFound(Exception):
@@ -43,8 +52,21 @@ class ReturnResult:
     fine: Decimal
 
 
+@dataclass(frozen=True, slots=True)
+class LostReportResult:
+    loan: Loan
+    fee: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class ReverseLossResult:
+    loan: Loan
+    fine: Decimal
+
+
 class LendingService:
     def __init__(self, session: Session) -> None:
+        self.session = session
         self.patrons = PatronRepo(session)
         self.items = ItemRepo(session)
         self.loans = LoanRepo(session)
@@ -116,3 +138,56 @@ class LendingService:
         if item is None:
             raise NotFound(f"item {item_id} not found")
         return self.holds.add(Hold(item_id=item_id, patron_id=patron.id, placed_at=now))
+
+    def report_lost(
+        self, loan_id: int, actor_role: str, actor_email: str, today: date
+    ) -> LostReportResult:
+        """Report a loan lost, by the patron or a librarian on their behalf.
+
+        The fee is the item's replacement cost plus the fine accrued as of
+        `today`, capped at REPLACEMENT_FEE_CAP. The copy count drops by one.
+        """
+        loan = self.loans.get(loan_id)
+        if loan is None:
+            raise NotFound(f"loan {loan_id} not found")
+        if actor_role == "patron":
+            patron = self.patrons.by_email(actor_email)
+            if patron is None or loan.patron_id != patron.id:
+                raise NotAllowed(f"loan {loan_id} does not belong to {actor_email!r}")
+
+        item = self.items.get(loan.item_id)
+        if item is None:
+            raise NotFound(f"item {loan.item_id} not found")
+
+        fine = fine_for(loan.due_on, today, GRACE_DAYS, FINE_PER_DAY, FINE_CAP)
+        fee = replacement_fee_for(item.replacement_cost, fine, REPLACEMENT_FEE_CAP)
+        item.copies -= 1
+        # Commit the copy reduction now, ahead of the status transition.
+        self.session.commit()
+
+        loan.status = transition(LoanStatus(loan.status), LoanStatus.LOST).value
+        loan.lost_on = today
+        return LostReportResult(loan=loan, fee=fee)
+
+    def reverse_loss(self, loan_id: int, today: date) -> ReverseLossResult:
+        """Reverse a lost report within REVERSAL_WINDOW_DAYS of it.
+
+        Restores the copy count and waives the fee; the fine is not waived.
+        """
+        loan = self.loans.get(loan_id)
+        if loan is None:
+            raise NotFound(f"loan {loan_id} not found")
+        if loan.status != "lost":
+            raise NotAllowed(f"loan {loan_id} is not lost")
+        if loan.lost_on is None or not can_reverse_loss(loan.lost_on, today, REVERSAL_WINDOW_DAYS):
+            raise NotAllowed(f"loan {loan_id} is outside the reversal window")
+
+        item = self.items.get(loan.item_id)
+        if item is None:
+            raise NotFound(f"item {loan.item_id} not found")
+
+        fine = fine_for(loan.due_on, loan.lost_on, GRACE_DAYS, FINE_PER_DAY, FINE_CAP)
+        loan.status = transition(LoanStatus(loan.status), LoanStatus.RETURNED).value
+        loan.returned_on = today
+        item.copies += 1
+        return ReverseLossResult(loan=loan, fine=fine)

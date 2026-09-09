@@ -13,6 +13,7 @@ from sandbox.library.domain.lending import (
     can_renew,
     due_date,
     fine_for,
+    replacement_fee_for,
     transition,
 )
 
@@ -56,13 +57,27 @@ def test_fine_for_capped() -> None:
 def test_transition_valid_and_invalid() -> None:
     assert transition(LoanStatus.ACTIVE, LoanStatus.RETURNED) is LoanStatus.RETURNED
     assert transition(LoanStatus.ACTIVE, LoanStatus.LOST) is LoanStatus.LOST
+    # A lost loan may move back to returned if the item turns up.
+    assert transition(LoanStatus.LOST, LoanStatus.RETURNED) is LoanStatus.RETURNED
     with pytest.raises(InvalidTransition):
         transition(LoanStatus.RETURNED, LoanStatus.ACTIVE)
     with pytest.raises(InvalidTransition):
-        transition(LoanStatus.LOST, LoanStatus.RETURNED)
+        transition(LoanStatus.LOST, LoanStatus.ACTIVE)
+    with pytest.raises(InvalidTransition):
+        transition(LoanStatus.RETURNED, LoanStatus.LOST)
 
 
 def test_can_renew() -> None:
     assert can_renew(renewals_so_far=0, max_renewals=2, has_hold=False) is True
     assert can_renew(renewals_so_far=2, max_renewals=2, has_hold=False) is False
     assert can_renew(renewals_so_far=0, max_renewals=2, has_hold=True) is False
+
+
+def test_replacement_fee_for_adds_cost_and_fine() -> None:
+    fee = replacement_fee_for(Decimal("20.00"), Decimal("1.75"), Decimal("75.00"))
+    assert fee == Decimal("21.75")
+
+
+def test_replacement_fee_for_capped() -> None:
+    fee = replacement_fee_for(Decimal("90.00"), Decimal("0.00"), Decimal("75.00"))
+    assert fee == Decimal("75.00")

@@ -14,10 +14,21 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
+from decimal import Decimal
 from functools import lru_cache
 from os import environ
 
-from sqlalchemy import Boolean, Date, DateTime, Engine, ForeignKey, Integer, String, create_engine
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Engine,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    create_engine,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 
@@ -39,6 +50,7 @@ class Item(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     copies: Mapped[int] = mapped_column(Integer, nullable=False)
+    replacement_cost: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
 
 
 class Loan(Base):
@@ -52,6 +64,9 @@ class Loan(Base):
     returned_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     renewals: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Set when this loan is reported lost; used for the reversal window
+    # and to recompute the fine accrued as of the report date.
+    lost_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     # The last calendar date the overdue job notified this loan's patron, so
     # a loan is warned about at most once per day no matter how many times
     # the job runs.

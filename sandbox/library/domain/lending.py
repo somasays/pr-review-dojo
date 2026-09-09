@@ -24,12 +24,13 @@ class InvalidTransition(Exception):
     pass
 
 
-# The only transitions a loan may ever make. Both returned and lost are
-# terminal: once a loan leaves active, it never changes status again.
+# The only transitions a loan may ever make. Returned is terminal. Lost may
+# move back to returned if the loss is reversed; can_reverse_loss below is
+# the date rule for when, not this table, which only knows what is legal.
 _ALLOWED_TRANSITIONS: dict[LoanStatus, frozenset[LoanStatus]] = {
     LoanStatus.ACTIVE: frozenset({LoanStatus.RETURNED, LoanStatus.LOST}),
     LoanStatus.RETURNED: frozenset(),
-    LoanStatus.LOST: frozenset(),
+    LoanStatus.LOST: frozenset({LoanStatus.RETURNED}),
 }
 
 
@@ -94,3 +95,29 @@ def can_renew(renewals_so_far: int, max_renewals: int, has_hold: bool) -> bool:
     if has_hold:
         return False
     return renewals_so_far < max_renewals
+
+
+def replacement_fee_for(replacement_cost: Decimal, fine: Decimal, cap: Decimal) -> Decimal:
+    """The fee owed when an item is reported lost, quantized to cents.
+
+    The fee is the item's replacement cost plus whatever fine has already
+    accrued as of the report date, and it never exceeds `cap`.
+    """
+    if replacement_cost < 0:
+        raise ValueError("replacement_cost must not be negative")
+    if fine < 0:
+        raise ValueError("fine must not be negative")
+    capped_cost = min(replacement_cost, cap)
+    return (capped_cost + fine).quantize(_CENTS, rounding=ROUND_HALF_UP)
+
+
+def can_reverse_loss(lost_on: date, today: date, window_days: int) -> bool:
+    """Whether a loan reported lost on `lost_on` may still be reversed.
+
+    The window is inclusive of its last day: reported lost on day 0 with a
+    `window_days` window, a reversal on day `window_days` itself still
+    qualifies; one day later it does not.
+    """
+    if window_days < 0:
+        raise ValueError("window_days must not be negative")
+    return (today - lost_on).days <= window_days

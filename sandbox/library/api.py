@@ -97,6 +97,16 @@ class ReturnOut(BaseModel):
     fine: Decimal
 
 
+class LostReportOut(BaseModel):
+    loan: LoanOut
+    fee: Decimal
+
+
+class ReverseLossOut(BaseModel):
+    loan: LoanOut
+    fine: Decimal
+
+
 class HoldOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -152,6 +162,33 @@ def create_hold(item_id: int, patron_email: PatronEmail, service: Service) -> Ho
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except NotAllowed as exc:
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+
+
+@app.post("/loans/{loan_id}/report-lost", response_model=LostReportOut)
+def report_lost(loan_id: int, identity: Identity, service: Service) -> LostReportOut:
+    """A patron may report their own loan lost; a librarian may report any
+    patron's loan lost."""
+    role, email = identity
+    try:
+        result = service.report_lost(loan_id, role, email, _today())
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except NotAllowed as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+    return LostReportOut(loan=LoanOut.model_validate(result.loan), fee=result.fee)
+
+
+@app.post("/loans/{loan_id}/reverse-loss", response_model=ReverseLossOut)
+def reverse_loss(loan_id: int, _identity: Identity, service: Service) -> ReverseLossOut:
+    """Reverse a lost report once the item turns up, within the reversal
+    window."""
+    try:
+        result = service.reverse_loss(loan_id, _today())
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except NotAllowed as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+    return ReverseLossOut(loan=LoanOut.model_validate(result.loan), fine=result.fine)
 
 
 @app.get("/patrons/{patron_id}/loans", response_model=list[LoanOut])

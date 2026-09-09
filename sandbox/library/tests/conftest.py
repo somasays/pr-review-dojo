@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -54,8 +55,8 @@ def seeded(db: Session) -> dict[str, Patron | Item]:
     bob = Patron(email=OTHER_PATRON_EMAIL, blocked=False)
     db.add_all([alice, bob])
     db.flush()
-    book = Item(title="Book One", copies=1)
-    other_book = Item(title="Book Two", copies=2)
+    book = Item(title="Book One", copies=1, replacement_cost=Decimal("20.00"))
+    other_book = Item(title="Book Two", copies=2, replacement_cost=Decimal("15.00"))
     db.add_all([book, other_book])
     db.flush()
     db.commit()
