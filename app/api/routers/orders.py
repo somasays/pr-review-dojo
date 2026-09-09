@@ -3,11 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, Orders, PageParams
-from app.api.schemas import OrderCreate, OrderOut, Page
+from app.api.schemas import FulfillRequest, OrderCreate, OrderOut, Page
 from app.db.models import Order
 from app.db.repositories import NotFound, OrderRepository
 from app.domain.order_state import InvalidTransition
-from app.services.order_service import CreateOrderCommand
+from app.services.order_service import CreateOrderCommand, FulfillmentFailed
 from app.services.pricing_service import (
     InsufficientStock,
     ItemRequest,
@@ -85,3 +85,17 @@ def ship_order(order_id: int, _admin: AdminPrincipal, service: Orders) -> Order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
     except InvalidTransition as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
+@router.post("/{order_id}/fulfill", response_model=OrderOut)
+def fulfill_order(
+    order_id: int, body: FulfillRequest, _admin: AdminPrincipal, service: Orders
+) -> Order:
+    try:
+        return service.fulfill(order_id, body.tracking_number)
+    except NotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "order not found") from exc
+    except InvalidTransition as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except FulfillmentFailed as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc

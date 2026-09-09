@@ -36,6 +36,7 @@ class Settings:
     smtp_host: str = "localhost"
     smtp_port: int = 25
     smtp_password: str = ""
+    warehouse_email: str = "warehouse@example.com"
     notify_retries: int = 3
     notify_backoff_seconds: float = 0.2
     worker_concurrency: int = 4
@@ -59,6 +60,7 @@ def load_settings() -> Settings:
         smtp_host=os.environ.get("SMTP_HOST", "localhost"),
         smtp_port=_int("SMTP_PORT", 25),
         smtp_password=os.environ.get("SMTP_PASSWORD", ""),
+        warehouse_email=os.environ.get("WAREHOUSE_EMAIL", "warehouse@example.com"),
         notify_retries=_int("NOTIFY_RETRIES", 3),
         notify_backoff_seconds=float(os.environ.get("NOTIFY_BACKOFF_SECONDS", "0.2")),
         worker_concurrency=_int("WORKER_CONCURRENCY", 4),

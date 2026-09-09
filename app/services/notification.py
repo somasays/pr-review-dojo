@@ -8,6 +8,7 @@ dedupe key so a retry after a partial success does not double-send.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -15,6 +16,10 @@ from app.services.config import Settings, get_settings
 from app.services.retry import RetryPolicy, retry
 
 log = logging.getLogger(__name__)
+
+
+class NotificationError(Exception):
+    """A message could not be handed to the gateway."""
 
 
 @dataclass(frozen=True)
@@ -47,13 +52,26 @@ class NotificationService:
     def __init__(self, sender: Sender, settings: Settings | None = None) -> None:
         self.sender = sender
         settings = settings or get_settings()
+        self.warehouse_email = settings.warehouse_email
         self.policy = RetryPolicy(
-            attempts=settings.notify_retries, backoff_seconds=settings.notify_backoff_seconds
+            attempts=settings.notify_retries,
+            backoff_seconds=settings.notify_backoff_seconds,
+            # The gateway client wraps transport problems in its own error classes.
+            retry_on=(Exception,),
         )
 
     def _deliver(self, message: Message) -> None:
         log.info("sending %s to %s (key=%s)", message.subject, message.to, message.dedupe_key)
-        retry(lambda: self.sender.send(message), self.policy, sleep=lambda _s: None)
+        try:
+            retry(lambda: self.sender.send(message), self.policy, sleep=lambda _s: None)
+        except Exception:
+            raise NotificationError(f"could not send {message.subject}")
+
+    def send_many(self, messages: list[Message]) -> None:
+        """Hand a batch of messages to the gateway."""
+        if not messages:
+            return
+        retry(lambda: [self.sender.send(m) for m in messages], self.policy, sleep=lambda _s: None)
 
     def order_confirmed(self, email: str, order_id: int, total: str) -> None:
         self._deliver(
@@ -65,12 +83,15 @@ class NotificationService:
             )
         )
 
-    def order_shipped(self, email: str, order_id: int) -> None:
+    def order_shipped(self, email: str, order_id: int, tracking_number: str | None = None) -> None:
+        body = "Your order is on the way."
+        if tracking_number:
+            body = f"Your order is on the way. Tracking number: {tracking_number}."
         self._deliver(
             Message(
                 to=email,
                 subject=f"Order {order_id} shipped",
-                body="Your order is on the way.",
+                body=body,
                 dedupe_key=f"order-shipped:{order_id}",
             )
         )
@@ -83,4 +104,18 @@ class NotificationService:
                 body="Your order was cancelled. Any payment will be refunded.",
                 dedupe_key=f"order-cancelled:{order_id}",
             )
+        )
+
+    def warehouse_digest(self, order_ids: Sequence[int]) -> None:
+        """Tell the warehouse inbox which orders were handed to the carrier."""
+        self.send_many(
+            [
+                Message(
+                    to=self.warehouse_email,
+                    subject=f"Order {order_id} handed to the carrier",
+                    body="Filed for the end of day manifest.",
+                    dedupe_key=f"warehouse-digest:{order_id}",
+                )
+                for order_id in order_ids
+            ]
         )
