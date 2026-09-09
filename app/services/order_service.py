@@ -13,8 +13,13 @@ from dataclasses import dataclass
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import Order, OrderItem
-from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
+from app.db.models import Address, Order, OrderItem
+from app.db.repositories import (
+    AddressRepository,
+    CustomerRepository,
+    OrderRepository,
+    ProductRepository,
+)
 from app.domain.order_state import OrderStatus, is_cancellable, transition
 from app.services.notification import NotificationService
 from app.services.pricing_service import ItemRequest, PricingService
@@ -28,6 +33,7 @@ class CreateOrderCommand:
     idempotency_key: str
     items: list[ItemRequest]
     discount_codes: list[str]
+    shipping_address_id: int | None = None
 
 
 class OrderService:
@@ -40,6 +46,7 @@ class OrderService:
         self.session = session
         self.orders = OrderRepository(session)
         self.customers = CustomerRepository(session)
+        self.addresses = AddressRepository(session)
         self.products = ProductRepository(session)
         self.pricing = pricing
         self.notifications = notifications
@@ -52,7 +59,9 @@ class OrderService:
 
         customer = self.customers.get(cmd.customer_id)
         products = self.products.by_skus([i.sku for i in cmd.items])
-        q = self.pricing.quote(cmd.items, products, cmd.discount_codes, customer.region)
+        address = self._resolve_address(cmd)
+        region = address.region if address is not None else customer.region
+        q = self.pricing.quote(cmd.items, products, cmd.discount_codes, region)
 
         order = Order(
             customer_id=customer.id,
@@ -64,6 +73,7 @@ class OrderService:
             tax=q.tax.amount,
             total=q.total.amount,
             discount_code=q.applied_codes[0] if q.applied_codes else None,
+            shipping_address_id=address.id if address is not None else None,
         )
         items = [
             OrderItem(
@@ -88,6 +98,12 @@ class OrderService:
             assert winner is not None
             return winner
         return order
+
+    def _resolve_address(self, cmd: CreateOrderCommand) -> Address | None:
+        """Explicit address if the caller picked one, otherwise the saved default."""
+        if cmd.shipping_address_id is None:
+            return self.addresses.default_for(cmd.customer_id)
+        return self.addresses.get_for_customer(cmd.shipping_address_id, cmd.customer_id)
 
     def _move(self, order: Order, target: OrderStatus) -> Order:
         current = OrderStatus(order.status)

@@ -27,6 +27,26 @@ class CustomerOut(BaseModel):
     created_at: datetime
 
 
+class AddressCreate(BaseModel):
+    label: str = Field(min_length=1, max_length=40)
+    line1: str = Field(min_length=1, max_length=200)
+    city: str = Field(min_length=1, max_length=120)
+    postal_code: str = Field(min_length=1, max_length=16)
+    region: str = "US-CA"
+
+
+class AddressOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    label: str
+    line1: str
+    city: str
+    postal_code: str
+    region: str
+    is_default: bool
+
+
 class OrderItemIn(BaseModel):
     sku: str = Field(min_length=1, max_length=64)
     quantity: int = Field(gt=0, le=1000)
@@ -36,6 +56,7 @@ class OrderCreate(BaseModel):
     idempotency_key: str = Field(min_length=8, max_length=64)
     items: list[OrderItemIn] = Field(min_length=1, max_length=50)
     discount_codes: list[str] = Field(default_factory=list, max_length=3)
+    address_id: int | None = None
 
     @field_validator("items")
     @classmethod
@@ -67,6 +88,7 @@ class OrderOut(BaseModel):
     discount_code: str | None
     created_at: datetime
     items: list[OrderItemOut]
+    shipping_address: AddressOut | None = None
 
 
 class Page[T](BaseModel):

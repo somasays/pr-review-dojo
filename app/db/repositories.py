@@ -9,10 +9,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.db.models import Customer, Order, OrderItem, Product
+from app.db.models import Address, Customer, Order, OrderItem, Product
 from app.domain.order_state import OrderStatus
 
 
@@ -47,6 +47,47 @@ class CustomerRepository:
         self.session.add(customer)
         self.session.flush()
         return customer
+
+
+class AddressRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, address_id: int) -> Address:
+        row = self.session.get(Address, address_id)
+        if row is None:
+            raise NotFound("address", address_id)
+        return row
+
+    def get_for_customer(self, address_id: int, customer_id: int) -> Address:
+        row = self.session.scalar(
+            select(Address).where(Address.id == address_id, Address.customer_id == customer_id)
+        )
+        if row is None:
+            raise NotFound("address", address_id)
+        return row
+
+    def list_for_customer(
+        self, customer_id: int, limit: int = 50, offset: int = 0
+    ) -> Sequence[Address]:
+        stmt = select(Address).where(Address.customer_id == customer_id).limit(limit).offset(offset)
+        return self.session.scalars(stmt).all()
+
+    def default_for(self, customer_id: int) -> Address | None:
+        stmt = select(Address).where(
+            Address.customer_id == customer_id, Address.is_default.is_(True)
+        )
+        return self.session.scalars(stmt).first()
+
+    def clear_default(self, customer_id: int) -> None:
+        self.session.execute(
+            update(Address).where(Address.customer_id == customer_id).values(is_default=False)
+        )
+
+    def add(self, address: Address) -> Address:
+        self.session.add(address)
+        self.session.flush()
+        return address
 
 
 class ProductRepository:

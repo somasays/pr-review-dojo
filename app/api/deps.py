@@ -51,6 +51,10 @@ class Principal:
         return self.customer_id
 
 
+# The address book pages authenticate on every request, so keep the lookup off the hot path.
+_principal_cache: dict[str, Principal] = {}
+
+
 def get_principal(
     db: DbSession,
     settings: AppSettings,
@@ -60,10 +64,15 @@ def get_principal(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing X-API-Key")
     if x_api_key in settings.admin_api_keys:
         return Principal(customer_id=None, is_admin=True)
+    cached = _principal_cache.get(x_api_key)
+    if cached is not None:
+        return cached
     customer: Customer | None = CustomerRepository(db).by_api_key_hash(hash_api_key(x_api_key))
     if customer is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid API key")
-    return Principal(customer_id=customer.id, is_admin=False)
+    principal = Principal(customer_id=customer.id, is_admin=False)
+    _principal_cache[x_api_key] = principal
+    return principal
 
 
 CurrentPrincipal = Annotated[Principal, Depends(get_principal)]
