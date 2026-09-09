@@ -20,14 +20,22 @@ from any of them.
   and the date the expense was incurred. A claim's total is the sum of its
   lines; there is no separate total column.
 - **Policy**: the per-line and per-month caps for a category
-  (`domain.policy.PolicyLimit`). Policy is checked once, at submission; it
-  is never re-checked at approval.
-- **Approval**: an approver's decision on a submitted claim, approve or
-  reject. It is not a role assigned to a claim; it is the act of deciding
-  one. An approver may never decide a claim they themselves filed.
+  (`domain.policy.PolicyLimit`). The per-line cap is checked once, at
+  submission. The per-month cap is checked at submission against the
+  submitted lines, and again at approval against whichever lines the
+  approver actually approves, since a partial approval can pull a claim
+  back under the cap it would have exceeded in full.
+- **Approval**: an approver's decision on a submitted claim, in whole or
+  line by line. A rejected line carries a reason; `Claim.payable_total` is
+  the sum of the approved lines, not the submitted total, and a claim is
+  rejected only when every line on it is rejected. Approval is not a role
+  assigned to a claim; it is the act of deciding one. An approver may never
+  decide a claim they themselves filed. Repeating the same decision from
+  the same approver on an already-decided claim returns it unchanged.
 - **Batch**: a group of approved, unpaid claims collected for one payout
   run. Creating a batch is what moves a claim from `approved` to `paid`;
-  there is no separate "mark paid" step.
+  there is no separate "mark paid" step. Each claim pays its
+  `payable_total`, not the total it was submitted with.
 
 ## Layout
 

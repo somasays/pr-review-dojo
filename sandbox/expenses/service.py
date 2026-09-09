@@ -20,8 +20,10 @@ from sandbox.expenses.domain.policy import (
     Category,
     ClaimStatus,
     PolicyLimit,
+    claim_outcome,
     line_violations,
     month_total_ok,
+    payable_total,
     transition,
 )
 from sandbox.expenses.repo import BatchRepo, ClaimRepo, EmployeeRepo
@@ -137,10 +139,21 @@ class ClaimService:
             return claims.add(claim)
 
     def decide(
-        self, approver_email: str, claim_id: str, approve: bool, reason: str | None
+        self,
+        approver_email: str,
+        claim_id: str,
+        approve: bool,
+        reason: str | None,
+        rejected_lines: Sequence[tuple[str, str]] | None = None,
     ) -> Claim:
-        """Approve or reject a submitted claim. An approver may not decide
-        a claim they filed themselves; rejecting one requires a reason."""
+        """Approve or reject a submitted claim, in whole or line by line.
+
+        Approving with `rejected_lines` (line id, reason pairs) marks those
+        lines rejected and every other line approved; the claim's payable
+        total is the sum of the approved lines, and the claim itself lands
+        on rejected only when every line ends up rejected. An approver may
+        not decide a claim they filed themselves. Repeating the same
+        decision from the same approver returns the claim unchanged."""
         if not approve and not reason:
             raise PolicyViolation("a reason is required to reject a claim")
 
@@ -151,18 +164,63 @@ class ClaimService:
             claim = claims.get(claim_id)
             if claim is None:
                 raise NotFound(f"claim {claim_id} not found")
+
             if claim.status != ClaimStatus.SUBMITTED.value:
+                if claim.decided_by == approver_email:
+                    return claim
                 raise NotAllowed(f"claim {claim_id} is not submitted")
 
-            owner = employees.get(claim.employee_id)
-            if owner is not None and owner.email == approver_email:
-                raise NotAllowed("an approver may not decide their own claim")
+            if not rejected_lines:
+                owner = employees.get(claim.employee_id)
+                if owner is not None and owner.email == approver_email:
+                    raise NotAllowed("an approver may not decide their own claim")
+                for line in claim.lines:
+                    if approve:
+                        line.outcome = "approved"
+                    else:
+                        line.outcome = "rejected"
+                        line.rejection_reason = reason
+                approved_lines = [line for line in claim.lines if line.outcome == "approved"]
+                claim.payable_total = sum((line.amount for line in approved_lines), Decimal("0.00"))
+            else:
+                rejected_by_id = dict(rejected_lines)
+                known_ids = {line.id for line in claim.lines}
+                unknown_ids = set(rejected_by_id) - known_ids
+                if unknown_ids:
+                    raise NotFound(
+                        f"line(s) {', '.join(sorted(unknown_ids))} not found on claim {claim_id}"
+                    )
+                for line in claim.lines:
+                    if line.id in rejected_by_id:
+                        line.outcome = "rejected"
+                        line.rejection_reason = rejected_by_id[line.id]
+                    else:
+                        line.outcome = "approved"
+                approved_lines = [line for line in claim.lines if line.outcome == "approved"]
+                claim.payable_total = payable_total([line.amount for line in approved_lines])
 
-            target = ClaimStatus.APPROVED if approve else ClaimStatus.REJECTED
+            approved_amounts = [line.amount for line in approved_lines]
+
+            if approved_amounts:
+                month_new_totals: dict[tuple[Category, int, int], Decimal] = {}
+                for line in approved_lines:
+                    key = (Category(line.category), line.incurred_on.year, line.incurred_on.month)
+                    month_new_totals[key] = month_new_totals.get(key, Decimal("0.00")) + line.amount
+                for (category, year, month), new_amount in month_new_totals.items():
+                    existing_total = claims.month_total_for(
+                        claim.employee_id, category, year, month
+                    )
+                    if not month_total_ok(existing_total, new_amount, self.limits.get(category)):
+                        raise PolicyViolation(
+                            f"{category.value} claims for {year:04d}-{month:02d} "
+                            "would exceed the monthly cap"
+                        )
+
+            target = claim_outcome(len(approved_lines), len(claim.lines))
             claim.status = transition(ClaimStatus(claim.status), target).value
             claim.decided_at = datetime.now(UTC)
             claim.decided_by = approver_email
-            return claim
+            return claims.save(claim)
 
 
 class PayoutService:
@@ -171,15 +229,16 @@ class PayoutService:
 
     def create_batch(self, now: datetime) -> PayoutBatch:
         """Collect every approved, unpaid claim into one batch and mark
-        each paid. The total sums line amounts regardless of currency;
-        PayoutBatch has no currency column, so this sandbox assumes a
-        single reimbursement currency."""
+        each paid. Each claim pays its payable total, the sum of its
+        approved lines, not the sum of every line it was submitted with.
+        The total sums regardless of currency; PayoutBatch has no currency
+        column, so this sandbox assumes a single reimbursement currency."""
         ensure_aware_utc(now)
         with unit_of_work(self.session_factory) as session:
             claims = ClaimRepo(session).approved_unpaid()
             total = Decimal("0.00")
             for claim in claims:
-                total += sum((line.amount for line in claim.lines), Decimal("0.00"))
+                total += claim.payable_total if claim.payable_total is not None else Decimal("0.00")
 
             batch = PayoutBatch(
                 id=str(uuid.uuid4()), created_at=now, total=_quantize(total), count=len(claims)
