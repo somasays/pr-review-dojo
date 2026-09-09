@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
+
+log = logging.getLogger(__name__)
 
 
 class ConfigError(Exception):
@@ -36,6 +39,7 @@ class Settings:
     smtp_host: str = "localhost"
     smtp_port: int = 25
     smtp_password: str = ""
+    payment_webhook_secret: str = ""
     notify_retries: int = 3
     notify_backoff_seconds: float = 0.2
     worker_concurrency: int = 4
@@ -52,19 +56,22 @@ def load_settings() -> Settings:
     database_url = os.environ.get("DATABASE_URL", "sqlite:///./dojo.db")
     if env == "prod" and database_url.startswith("sqlite"):
         raise ConfigError("sqlite is not allowed in prod")
-    return Settings(
+    settings = Settings(
         env=env,
         database_url=database_url,
         admin_api_keys=_list("ADMIN_API_KEYS", []),
         smtp_host=os.environ.get("SMTP_HOST", "localhost"),
         smtp_port=_int("SMTP_PORT", 25),
         smtp_password=os.environ.get("SMTP_PASSWORD", ""),
+        payment_webhook_secret=os.environ.get("PAYMENT_WEBHOOK_SECRET", ""),
         notify_retries=_int("NOTIFY_RETRIES", 3),
         notify_backoff_seconds=float(os.environ.get("NOTIFY_BACKOFF_SECONDS", "0.2")),
         worker_concurrency=_int("WORKER_CONCURRENCY", 4),
         data_lake_root=os.environ.get("DATA_LAKE_ROOT", "./data"),
         page_size_max=_int("PAGE_SIZE_MAX", 200),
     )
+    log.info("settings loaded: %r", settings)
+    return settings
 
 
 @lru_cache(maxsize=1)
