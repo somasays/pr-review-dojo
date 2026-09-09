@@ -16,7 +16,7 @@ def sender() -> InMemorySender:
 
 @pytest.fixture
 def service(db, sender) -> OrderService:
-    return OrderService(db, PricingService(), NotificationService(sender, Settings()))
+    return OrderService(db, PricingService(db), NotificationService(sender, Settings()))
 
 
 def _cmd(customer_id: int, key: str = "key-00000001", codes: list[str] | None = None):

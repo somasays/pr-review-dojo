@@ -14,7 +14,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Order, OrderItem
-from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
+from app.db.repositories import (
+    CustomerRepository,
+    DiscountCodeRepository,
+    OrderRepository,
+    ProductRepository,
+)
 from app.domain.order_state import OrderStatus, is_cancellable, transition
 from app.services.notification import NotificationService
 from app.services.pricing_service import ItemRequest, PricingService
@@ -41,6 +46,7 @@ class OrderService:
         self.orders = OrderRepository(session)
         self.customers = CustomerRepository(session)
         self.products = ProductRepository(session)
+        self.discounts = DiscountCodeRepository(session)
         self.pricing = pricing
         self.notifications = notifications
 
@@ -53,6 +59,12 @@ class OrderService:
         customer = self.customers.get(cmd.customer_id)
         products = self.products.by_skus([i.sku for i in cmd.items])
         q = self.pricing.quote(cmd.items, products, cmd.discount_codes, customer.region)
+
+        if q.applied_codes:
+            self.discounts.record_redemption(q.applied_codes[0])
+            # Persist the redemption before building the order so a concurrent
+            # create cannot spend the same remaining redemption.
+            self.session.commit()
 
         order = Order(
             customer_id=customer.id,

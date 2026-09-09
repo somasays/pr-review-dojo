@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from app.db.models import Product
+from sqlalchemy.orm import Session
+
+from app.db.models import DiscountCode, Product
+from app.db.repositories import DiscountCodeRepository
 from app.domain.money import Money
 from app.domain.pricing import Discount, DiscountKind, Line, Quote, quote
 
@@ -20,6 +23,12 @@ class UnknownDiscountCode(Exception):
     pass
 
 
+class DiscountExhausted(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(f"{code} has reached its redemption limit")
+        self.code = code
+
+
 class UnknownSku(Exception):
     def __init__(self, skus: list[str]) -> None:
         super().__init__(f"unknown skus: {', '.join(skus)}")
@@ -32,24 +41,32 @@ class InsufficientStock(Exception):
         self.sku = sku
 
 
-# Codes are static for now. A later change may move these to the database.
-DISCOUNT_CODES: dict[str, Discount] = {
-    "WELCOME10": Discount("WELCOME10", DiscountKind.PERCENT, Decimal("10")),
-    "FLAT5": Discount("FLAT5", DiscountKind.FIXED, Decimal("5")),
-    "BULK15": Discount(
-        "BULK15", DiscountKind.THRESHOLD, Decimal("15"), min_subtotal=Money.of("200")
-    ),
-}
+def to_discount(row: DiscountCode) -> Discount:
+    """Turn a stored code into the pure domain rule."""
+    min_subtotal = Money(row.min_subtotal) if row.min_subtotal is not None else None
+    return Discount(
+        code=row.code,
+        kind=DiscountKind(row.kind),
+        value=Decimal(str(row.value)),
+        min_subtotal=min_subtotal,
+    )
 
 
 class PricingService:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+        self.discounts = DiscountCodeRepository(session)
+
     def resolve_discounts(self, codes: list[str]) -> list[Discount]:
         out = []
         for code in codes:
             normalized = code.strip().upper()
-            if normalized not in DISCOUNT_CODES:
+            row = self.discounts.by_code(normalized)
+            if row is None or not row.active:
                 raise UnknownDiscountCode(normalized)
-            out.append(DISCOUNT_CODES[normalized])
+            if row.max_redemptions is not None and row.times_redeemed >= row.max_redemptions:
+                raise DiscountExhausted(normalized)
+            out.append(to_discount(row))
         return out
 
     def build_lines(self, items: list[ItemRequest], products: dict[str, Product]) -> list[Line]:

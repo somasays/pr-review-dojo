@@ -12,7 +12,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Customer, Order, OrderItem, Product
+from app.db.models import Customer, DiscountCode, Order, OrderItem, Product
 from app.domain.order_state import OrderStatus
 
 
@@ -126,3 +126,36 @@ class OrderRepository:
     def count_by_status(self) -> dict[str, int]:
         stmt = select(Order.status, func.count(Order.id)).group_by(Order.status)
         return {status: count for status, count in self.session.execute(stmt).all()}
+
+
+class DiscountCodeRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def by_code(self, code: str) -> DiscountCode | None:
+        return self.session.scalar(select(DiscountCode).where(DiscountCode.code == code))
+
+    def list_all(self) -> Sequence[DiscountCode]:
+        return self.session.scalars(select(DiscountCode).order_by(DiscountCode.code)).all()
+
+    def add(self, discount: DiscountCode) -> DiscountCode:
+        self.session.add(discount)
+        self.session.flush()
+        return discount
+
+    def deactivate(self, code: str) -> DiscountCode:
+        row = self.by_code(code)
+        if row is None:
+            raise NotFound("discount_code", code)
+        row.active = False
+        self.session.flush()
+        self.session.commit()  # take it out of circulation right away
+        return row
+
+    def record_redemption(self, code: str) -> DiscountCode:
+        row = self.by_code(code)
+        if row is None:
+            raise NotFound("discount_code", code)
+        row.times_redeemed += 1
+        self.session.flush()
+        return row
