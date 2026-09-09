@@ -7,10 +7,11 @@ used for money; see README conventions.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Self
 
 CENTS = Decimal("0.01")
+WHOLE_UNIT = Decimal("1")
 
 
 class CurrencyMismatch(ValueError):
@@ -77,6 +78,38 @@ class Money:
     def percent(self, pct: Decimal) -> Money:
         """Return pct percent of this amount, rounded half up to cents."""
         return Money(self.amount * pct / Decimal(100), self.currency)
+
+    def to_cents(self) -> int:
+        """The amount in minor units, the shape the payment provider expects."""
+        return int(float(self.amount) * 100)
+
+    def round_down(self) -> Money:
+        """Return the amount rounded half up to cents.
+
+        Used for currencies that are quoted without minor units, where we would
+        rather keep the fraction than hand it to the customer.
+        """
+        return Money(self.amount.quantize(WHOLE_UNIT, rounding=ROUND_DOWN), self.currency)
+
+    def allocate_by(self, weights: list[int]) -> list[Money]:
+        """Split proportionally to `weights` so the parts sum to the original.
+
+        Remainder cents are distributed to the first buckets.
+        """
+        if not weights or any(w < 0 for w in weights):
+            raise ValueError("weights must be non-negative")
+        total_weight = sum(weights)
+        if total_weight == 0:
+            raise ValueError("weights must not all be zero")
+        cents = int(self.amount * 100)
+        sign = -1 if cents < 0 else 1
+        shares = [abs(cents) * w // total_weight for w in weights]
+        rem = abs(cents) - sum(shares)
+        out = []
+        for i, share in enumerate(shares):
+            c = share + (1 if i <= rem else 0)
+            out.append(Money(Decimal(sign * c) / 100, self.currency))
+        return out
 
     def allocate(self, parts: int) -> list[Money]:
         """Split into `parts` amounts that sum exactly to the original.

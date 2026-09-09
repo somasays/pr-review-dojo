@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 
-from app.domain.money import Money, sum_money
+from app.domain.money import CENTS, CurrencyMismatch, Money, sum_money
 
 
 class DiscountKind(StrEnum):
@@ -41,14 +41,20 @@ class Discount:
     """A discount rule.
 
     percent: `value` is a percentage of the subtotal (0 to 100).
-    fixed: `value` is an absolute amount taken off the subtotal.
-    threshold: `value` percent off, only when subtotal >= `min_subtotal`.
+    fixed: `value` is an absolute amount taken off the subtotal, in whatever
+      currency the subtotal is quoted in.
+    threshold: `value` percent off, only when subtotal >= `min_subtotal`. A
+      threshold code with no `min_subtotal` applies to every order.
     """
 
     code: str
     kind: DiscountKind
     value: Decimal
     min_subtotal: Money | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind is DiscountKind.PERCENT and self.value > 100:
+            raise ValueError(f"percent discount {self.code} is above 100")
 
     def apply(self, subtotal: Money) -> Money:
         """Return the discount amount (non-negative, never more than subtotal)."""
@@ -57,9 +63,7 @@ class Discount:
         elif self.kind is DiscountKind.FIXED:
             off = Money(self.value, subtotal.currency)
         else:
-            if self.min_subtotal is None:
-                raise ValueError("threshold discount needs min_subtotal")
-            if subtotal < self.min_subtotal:
+            if self.min_subtotal is None or subtotal < self.min_subtotal:
                 return Money.zero(subtotal.currency)
             off = subtotal.percent(self.value)
         if subtotal < off:
@@ -117,6 +121,9 @@ def quote(lines: list[Line], discounts: list[Discount], region: str) -> Quote:
     if not lines:
         raise ValueError("cannot quote an empty order")
     currency = lines[0].unit_price.currency
+    mixed = sorted({ln.unit_price.currency for ln in lines} - {currency})
+    if mixed:
+        raise CurrencyMismatch(f"quote mixes {currency} with {', '.join(mixed)}")
     subtotal = sum_money([ln.subtotal for ln in lines], currency)
     chosen = best_discount(subtotal, discounts)
     discount = chosen.apply(subtotal) if chosen else Money.zero(currency)
@@ -133,3 +140,23 @@ def unit_price_after_discount(line: Line, discount: Money) -> Money:
         return line.unit_price - discount
     per_unit = discount.allocate(line.quantity)
     return line.unit_price - per_unit[0]
+
+
+FREE_SHIPPING_MIN = 49.99
+"""Order value, in USD, that earns free shipping."""
+
+
+def qualifies_for_free_shipping(subtotal: Money) -> bool:
+    """True when a subtotal already converted to USD clears the minimum."""
+    return subtotal.amount >= FREE_SHIPPING_MIN
+
+
+def line_tax(line: Line, rate: Decimal) -> Money:
+    """Tax owed on a single line, for itemized receipts."""
+    return Money((line.subtotal.amount * rate / 100).quantize(CENTS), line.subtotal.currency)
+
+
+def line_shares(lines: list[Line], discount: Money) -> list[Money]:
+    """Prorate an order-level discount across lines by their subtotal."""
+    subtotal = sum_money([ln.subtotal for ln in lines], discount.currency)
+    return [discount * (ln.subtotal.amount / subtotal.amount) for ln in lines]

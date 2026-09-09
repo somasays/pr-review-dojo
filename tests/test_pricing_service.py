@@ -1,5 +1,7 @@
 import pytest
 
+from app.domain.money import Money
+from app.domain.pricing import Line
 from app.services.pricing_service import (
     ItemRequest,
     PricingService,
@@ -26,3 +28,9 @@ def test_quote_uses_customer_region(db, seeded):
     q = PricingService().quote([ItemRequest("WIDGET", 1)], seeded["products"], [], "US-OR")
     assert q.tax.is_zero()
     assert str(q.total) == "19.99 USD"
+
+
+def test_refund_by_line_splits_proportionally():
+    lines = [Line("A", Money.of("30.00"), 1), Line("B", Money.of("70.00"), 1)]
+    parts = PricingService().refund_by_line(lines, Money.of("10.00"))
+    assert parts == [Money.of("3.00"), Money.of("7.00")]
