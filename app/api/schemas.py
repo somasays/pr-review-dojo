@@ -46,6 +46,10 @@ class OrderCreate(BaseModel):
         return items
 
 
+class ChargeRequest(BaseModel):
+    card_token: str = Field(min_length=4, max_length=64)
+
+
 class OrderItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
