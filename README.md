@@ -22,6 +22,9 @@ A sixth, self-contained practice codebase lives at `sandbox/metering/`; see
 A seventh, self-contained practice codebase lives at `sandbox/timesheets/`;
 see `sandbox/timesheets/README.md` for what it is and its own conventions.
 
+An eighth, self-contained practice codebase lives at `sandbox/parking/`; see
+`sandbox/parking/README.md` for what it is and its own conventions.
+
 ## Layout
 
 | Package | What it does |
