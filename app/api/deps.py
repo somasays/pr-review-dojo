@@ -14,6 +14,7 @@ from app.db.models import Customer
 from app.db.repositories import CustomerRepository
 from app.db.session import get_session_factory
 from app.services.config import Settings, get_settings
+from app.services.flash_sales import SaleCounter
 from app.services.notification import InMemorySender, NotificationService
 from app.services.order_service import OrderService
 from app.services.pricing_service import PricingService
@@ -97,9 +98,26 @@ PageParams = Annotated[Pagination, Depends(get_pagination)]
 # Process-wide sender so local runs can inspect what would have been emailed.
 _sender = InMemorySender()
 
+# Process-wide counter for flash sale units sold, so every request thread and
+# the admin report see the same numbers.
+_sale_counter: SaleCounter | None = None
 
-def get_order_service(db: DbSession, settings: AppSettings) -> OrderService:
-    return OrderService(db, PricingService(), NotificationService(_sender, settings))
+
+def get_sale_counter() -> SaleCounter:
+    global _sale_counter
+    if _sale_counter is None:
+        _sale_counter = SaleCounter()
+        _sale_counter.start()
+    return _sale_counter
+
+
+SaleCounterDep = Annotated[SaleCounter, Depends(get_sale_counter)]
+
+
+def get_order_service(
+    db: DbSession, settings: AppSettings, sale_counter: SaleCounterDep
+) -> OrderService:
+    return OrderService(db, PricingService(), NotificationService(_sender, settings), sale_counter)
 
 
 Orders = Annotated[OrderService, Depends(get_order_service)]

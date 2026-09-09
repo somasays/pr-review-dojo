@@ -13,9 +13,13 @@ from dataclasses import dataclass
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import Order, OrderItem
+from app.db.models import Order, OrderItem, Product
 from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
+from app.domain.dates import utcnow
+from app.domain.flash_sale import FlashSale
+from app.domain.money import Money
 from app.domain.order_state import OrderStatus, is_cancellable, transition
+from app.services.flash_sales import ACTIVE_SALES, SaleCapExceeded, SaleCounter
 from app.services.notification import NotificationService
 from app.services.pricing_service import ItemRequest, PricingService
 
@@ -36,6 +40,7 @@ class OrderService:
         session: Session,
         pricing: PricingService,
         notifications: NotificationService,
+        sale_counter: SaleCounter | None = None,
     ) -> None:
         self.session = session
         self.orders = OrderRepository(session)
@@ -43,6 +48,7 @@ class OrderService:
         self.products = ProductRepository(session)
         self.pricing = pricing
         self.notifications = notifications
+        self.sale_counter = sale_counter or SaleCounter()
 
     def create(self, cmd: CreateOrderCommand) -> Order:
         existing = self.orders.by_idempotency_key(cmd.customer_id, cmd.idempotency_key)
@@ -52,7 +58,10 @@ class OrderService:
 
         customer = self.customers.get(cmd.customer_id)
         products = self.products.by_skus([i.sku for i in cmd.items])
-        q = self.pricing.quote(cmd.items, products, cmd.discount_codes, customer.region)
+        sale_prices = self._flash_sale_prices(cmd, products)
+        q = self.pricing.quote(
+            cmd.items, products, cmd.discount_codes, customer.region, sale_prices
+        )
 
         order = Order(
             customer_id=customer.id,
@@ -70,7 +79,11 @@ class OrderService:
                 product_id=products[i.sku].id,
                 sku=i.sku,
                 quantity=i.quantity,
-                unit_price=products[i.sku].unit_price,
+                unit_price=(
+                    sale_prices[i.sku].amount
+                    if i.sku in sale_prices
+                    else products[i.sku].unit_price
+                ),
             )
             for i in cmd.items
         ]
@@ -87,7 +100,34 @@ class OrderService:
             winner = self.orders.by_idempotency_key(cmd.customer_id, cmd.idempotency_key)
             assert winner is not None
             return winner
+
+        for i in cmd.items:
+            if i.sku in sale_prices:
+                self.sale_counter.record_purchase(i.sku, cmd.customer_id, i.quantity)
         return order
+
+    def _flash_sale_prices(
+        self, cmd: CreateOrderCommand, products: dict[str, Product]
+    ) -> dict[str, Money]:
+        """Sale price for each item whose SKU has an active flash sale."""
+        now = utcnow()
+        overrides: dict[str, Money] = {}
+        for item in cmd.items:
+            sale = ACTIVE_SALES.get(item.sku)
+            if sale is None or not sale.is_active(now):
+                continue
+            try:
+                self._check_sale_cap(sale, cmd.customer_id, item.quantity)
+            except SaleCapExceeded as exc:
+                log.warning("flash sale cap check failed: %s", exc)
+            product = products[item.sku]
+            overrides[item.sku] = sale.sale_price(Money(product.unit_price, product.currency))
+        return overrides
+
+    def _check_sale_cap(self, sale: FlashSale, customer_id: int, quantity: int) -> None:
+        already = self.sale_counter.units_sold_by_customer(sale.sku, customer_id)
+        if not sale.units_within_cap(already, quantity):
+            raise SaleCapExceeded(sale.sku)
 
     def _move(self, order: Order, target: OrderStatus) -> Order:
         current = OrderStatus(order.status)

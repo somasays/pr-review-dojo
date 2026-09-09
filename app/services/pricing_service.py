@@ -52,22 +52,23 @@ class PricingService:
             out.append(DISCOUNT_CODES[normalized])
         return out
 
-    def build_lines(self, items: list[ItemRequest], products: dict[str, Product]) -> list[Line]:
+    def build_lines(
+        self,
+        items: list[ItemRequest],
+        products: dict[str, Product],
+        price_overrides: dict[str, Money] | None = None,
+    ) -> list[Line]:
         missing = [i.sku for i in items if i.sku not in products]
         if missing:
             raise UnknownSku(missing)
+        overrides = price_overrides or {}
         lines = []
         for item in items:
             product = products[item.sku]
             if product.stock < item.quantity:
                 raise InsufficientStock(item.sku, item.quantity, product.stock)
-            lines.append(
-                Line(
-                    sku=item.sku,
-                    unit_price=Money(product.unit_price, product.currency),
-                    quantity=item.quantity,
-                )
-            )
+            unit_price = overrides.get(item.sku) or Money(product.unit_price, product.currency)
+            lines.append(Line(sku=item.sku, unit_price=unit_price, quantity=item.quantity))
         return lines
 
     def quote(
@@ -76,7 +77,8 @@ class PricingService:
         products: dict[str, Product],
         codes: list[str],
         region: str,
+        price_overrides: dict[str, Money] | None = None,
     ) -> Quote:
-        lines = self.build_lines(items, products)
+        lines = self.build_lines(items, products, price_overrides)
         discounts = self.resolve_discounts(codes)
         return quote(lines, discounts, region)

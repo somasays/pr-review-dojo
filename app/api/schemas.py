@@ -80,5 +80,14 @@ class StatusCount(BaseModel):
     count: int
 
 
+class ActiveSaleOut(BaseModel):
+    sku: str
+    percent_off: Decimal
+    floor_price: Decimal
+    per_customer_unit_cap: int
+    ends_at: datetime
+    units_sold: int
+
+
 class ErrorOut(BaseModel):
     detail: str
