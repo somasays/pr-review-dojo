@@ -67,7 +67,7 @@ def test_decide_returns_false_for_a_paused_campaign_and_leaves_it_untracked(
 def test_campaign_lifecycle_create_pause_resume_end(
     session_factory: sessionmaker[Session], advertiser: Advertiser
 ):
-    service = CampaignService(session_factory)
+    service = CampaignService(session_factory, SpendTracker())
     with pytest.raises(NotFound):
         service.create(OPS, "nobody@example.com", "Nope", Decimal("5.00"), Decimal("1.00"))
 

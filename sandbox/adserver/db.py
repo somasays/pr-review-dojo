@@ -11,6 +11,7 @@ from functools import lru_cache
 from os import environ
 
 from sqlalchemy import (
+    Boolean,
     Date,
     Engine,
     ForeignKey,
@@ -54,6 +55,7 @@ class Campaign(Base):
     status: Mapped[str] = mapped_column(
         String(10), nullable=False, default=CampaignStatus.ACTIVE.value
     )
+    carryover_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     advertiser: Mapped[Advertiser] = relationship()
 
@@ -66,6 +68,16 @@ class Spend(Base):
     campaign_id: Mapped[int] = mapped_column(ForeignKey("campaigns.id"), nullable=False)
     day: Mapped[date] = mapped_column(Date, nullable=False)
     impressions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+
+
+class Carryover(Base):
+    __tablename__ = "carryovers"
+    __table_args__ = (UniqueConstraint("campaign_id", "day", name="uq_carryover_campaign_day"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("campaigns.id"), nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
 
 

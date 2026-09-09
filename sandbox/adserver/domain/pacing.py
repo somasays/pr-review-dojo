@@ -30,6 +30,22 @@ def remaining_budget(spent_today: Decimal, daily_budget: Decimal) -> Decimal:
     return remaining if remaining > Decimal("0.00") else Decimal("0.00")
 
 
+def carryover_for(
+    yesterday_budget: Decimal, yesterday_spent: Decimal, daily_budget: Decimal
+) -> Decimal:
+    """The unspent part of yesterday's budget, capped at one extra day's
+    budget and never negative."""
+    unspent = yesterday_budget - yesterday_spent
+    if unspent <= Decimal("0.00"):
+        return Decimal("0.00")
+    return min(unspent, daily_budget)
+
+
+def effective_budget(daily_budget: Decimal, carryover: Decimal) -> Decimal:
+    """Today's budget plus any carried-over amount."""
+    return daily_budget + carryover
+
+
 def pace_target(daily_budget: Decimal, now_utc: datetime) -> Decimal:
     """The budget that should have been spent by now if spend were linear
     across the UTC calendar day: budget times the fraction of the day
