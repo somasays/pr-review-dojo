@@ -16,3 +16,11 @@ def test_retries_transient_gateway_errors():
     svc = NotificationService(sender, Settings(notify_retries=3))
     svc.order_shipped("a@example.com", 8)
     assert [m.subject for m in sender.sent] == ["Order 8 shipped"]
+
+
+def test_dead_letter_alert_carries_the_key_it_was_given():
+    sender = InMemorySender()
+    svc = NotificationService(sender, Settings(notify_retries=1))
+    svc.dead_letter_alert("ops@example.com", 3, dedupe_key="dead-letter:4")
+    assert sender.sent[0].dedupe_key == "dead-letter:4"
+    assert "3 order events" in sender.sent[0].body

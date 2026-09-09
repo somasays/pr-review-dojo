@@ -75,6 +75,16 @@ class NotificationService:
             )
         )
 
+    def dead_letter_alert(self, email: str, count: int, dedupe_key: str) -> None:
+        self._deliver(
+            Message(
+                to=email,
+                subject="Malformed order events",
+                body=f"{count} order events could not be parsed and were parked.",
+                dedupe_key=dedupe_key,
+            )
+        )
+
     def order_cancelled(self, email: str, order_id: int) -> None:
         self._deliver(
             Message(

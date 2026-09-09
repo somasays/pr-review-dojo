@@ -25,5 +25,7 @@ def get_spark(app_name: str = "dojo") -> SparkSession:
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
         # dt partition keys stay strings; never let Spark infer them as dates.
         .config("spark.sql.sources.partitionColumnTypeInference.enabled", "false")
+        # Needed by the dead letter reader, which has no schema of its own.
+        .config("spark.sql.streaming.schemaInference", "true")
         .getOrCreate()
     )
