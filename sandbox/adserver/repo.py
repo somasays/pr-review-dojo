@@ -11,7 +11,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from sandbox.adserver.db import Advertiser, Campaign, Spend
+from sandbox.adserver.db import Advertiser, Campaign, Carryover, Spend
 from sandbox.adserver.domain.pacing import CampaignStatus
 
 
@@ -70,3 +70,17 @@ class SpendRepo:
     def for_campaign(self, campaign_id: int) -> Sequence[Spend]:
         stmt = select(Spend).where(Spend.campaign_id == campaign_id).order_by(Spend.day)
         return self.session.scalars(stmt).all()
+
+
+class CarryoverRepo:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add(self, carryover: Carryover) -> Carryover:
+        self.session.add(carryover)
+        self.session.flush()
+        return carryover
+
+    def for_campaign_day(self, campaign_id: int, day: date) -> Carryover | None:
+        stmt = select(Carryover).where(Carryover.campaign_id == campaign_id, Carryover.day == day)
+        return self.session.scalars(stmt).first()
