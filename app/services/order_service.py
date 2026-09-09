@@ -15,7 +15,9 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Order, OrderItem
 from app.db.repositories import CustomerRepository, OrderRepository, ProductRepository
+from app.domain.loyalty import loyalty_credit
 from app.domain.order_state import OrderStatus, is_cancellable, transition
+from app.domain.pricing import tax_rate_for
 from app.services.notification import NotificationService
 from app.services.pricing_service import ItemRequest, PricingService
 
@@ -54,6 +56,12 @@ class OrderService:
         products = self.products.by_skus([i.sku for i in cmd.items])
         q = self.pricing.quote(cmd.items, products, cmd.discount_codes, customer.region)
 
+        paid_orders = self.orders.list_paid_for_customer(customer.id)
+        credit = loyalty_credit(paid_orders, q.taxable)
+        taxable_after_credit = q.taxable - credit
+        tax = taxable_after_credit.percent(tax_rate_for(customer.region))
+        total = taxable_after_credit + tax
+
         order = Order(
             customer_id=customer.id,
             idempotency_key=cmd.idempotency_key,
@@ -61,9 +69,10 @@ class OrderService:
             currency=q.total.currency,
             subtotal=q.subtotal.amount,
             discount=q.discount.amount,
-            tax=q.tax.amount,
-            total=q.total.amount,
+            tax=tax.amount,
+            total=total.amount,
             discount_code=q.applied_codes[0] if q.applied_codes else None,
+            loyalty_credit=credit.amount,
         )
         items = [
             OrderItem(
@@ -87,6 +96,9 @@ class OrderService:
             winner = self.orders.by_idempotency_key(cmd.customer_id, cmd.idempotency_key)
             assert winner is not None
             return winner
+
+        if not credit.is_zero():
+            self.notifications.loyalty_credit_applied(customer.email, order.id, str(credit))
         return order
 
     def _move(self, order: Order, target: OrderStatus) -> Order:
@@ -118,13 +130,15 @@ class OrderService:
 
     def cancel(self, order_id: int) -> Order:
         order = self.orders.get(order_id)
-        if order.status == OrderStatus.CANCELLED:
-            return order
-        if not is_cancellable(OrderStatus(order.status)):
+        already_cancelled = order.status == OrderStatus.CANCELLED
+        if not already_cancelled and not is_cancellable(OrderStatus(order.status)):
             # Let the state machine raise the descriptive error.
             transition(OrderStatus(order.status), OrderStatus.CANCELLED)
+        log.info("cancelling order %s (loyalty_credit=%s)", order.id, order.loyalty_credit)
         for item in order.items:
             item.product.stock += item.quantity
+        if already_cancelled:
+            return order
         self._move(order, OrderStatus.CANCELLED)
         self.notifications.order_cancelled(order.customer.email, order.id)
         return order
