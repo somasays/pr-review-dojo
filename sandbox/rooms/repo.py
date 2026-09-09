@@ -68,6 +68,37 @@ class BookingRepo:
         )
         return self.session.scalars(stmt).all()
 
+    def find_conflicts_excluding(
+        self, room_id: str, slot: Slot, exclude_booking_id: str
+    ) -> Sequence[Booking]:
+        """Active bookings in `room_id` overlapping `slot`, other than `exclude_booking_id`."""
+        stmt = select(Booking).where(
+            Booking.room_id == room_id,
+            Booking.id != exclude_booking_id,
+            Booking.start < slot.end,
+            Booking.end > slot.start,
+        )
+        return self.session.scalars(stmt).all()
+
+    def update_slot(
+        self, booking_id: str, start: datetime, end: datetime, price_cents: int
+    ) -> Booking | None:
+        booking = self.session.get(Booking, booking_id)
+        if booking is None:
+            return None
+        booking.start = start
+        booking.end = end
+        booking.price_cents = price_cents
+        self.session.commit()
+        return booking
+
+    def reset_reminder(self, booking_id: str) -> None:
+        booking = self.session.get(Booking, booking_id)
+        if booking is None:
+            return
+        booking.reminded_at = None
+        self.session.commit()
+
     def cancel(self, booking_id: str) -> Booking | None:
         booking = self.session.get(Booking, booking_id)
         if booking is None:

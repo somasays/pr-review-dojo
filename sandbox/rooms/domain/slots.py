@@ -14,6 +14,7 @@ HALF_HOUR = timedelta(minutes=30)
 MAX_DURATION = timedelta(hours=8)
 MEMBER_DISCOUNT_PERCENT = 15
 MIN_CHARGE_CENTS = 500
+AMEND_CUTOFF = timedelta(minutes=30)
 
 
 def _is_half_hour_aligned(ts: datetime) -> bool:
@@ -70,3 +71,12 @@ def price_cents(slot: Slot, rate_cents_per_hour: int, member: bool) -> int:
     if member:
         metered = metered * (100 - MEMBER_DISCOUNT_PERCENT) // 100
     return max(metered, MIN_CHARGE_CENTS)
+
+
+def can_amend(now: datetime, current_start: datetime) -> bool:
+    """True if a booking starting at `current_start` may still be amended at `now`.
+
+    Refused once the booking has started, and refused once fewer than
+    AMEND_CUTOFF remain before the start.
+    """
+    return current_start - now > AMEND_CUTOFF
