@@ -5,7 +5,9 @@ being agent or lead. The metrics instance is created once per app in
 
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from os import environ
 from typing import Annotated
 
@@ -14,11 +16,14 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session, sessionmaker
 
+from sandbox.helpdesk.assigner import AutoAssigner
 from sandbox.helpdesk.db import Ticket, get_session_factory
 from sandbox.helpdesk.domain.sla import Priority
 from sandbox.helpdesk.metrics import QueueMetrics
 from sandbox.helpdesk.repo import TicketRepo
 from sandbox.helpdesk.service import AlreadyClaimed, NotAllowed, NotFound, TicketService
+
+ASSIGNER_INTERVAL_SECONDS = 30
 
 
 def _keys() -> dict[str, tuple[str, str]]:
@@ -91,6 +96,10 @@ class AtIn(BaseModel):
     now: datetime
 
 
+class AssignIn(BaseModel):
+    agent_email: str
+
+
 class TicketOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -109,10 +118,19 @@ class MetricsOut(BaseModel):
     created: int
     claimed: int
     resolved: int
+    assigned: int
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    assigner = AutoAssigner(get_session_factory(), ASSIGNER_INTERVAL_SECONDS)
+    assigner.start()
+    yield
+    assigner.stop()
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Helpdesk", version="0.1.0")
+    app = FastAPI(title="Helpdesk", version="0.1.0", lifespan=_lifespan)
     app.state.metrics = QueueMetrics()
 
     @app.exception_handler(NotFound)
@@ -164,6 +182,18 @@ def create_app() -> FastAPI:
         role, email = identity
         ticket = service.resolve(email, ticket_id, body.now, is_lead=role == "lead")
         metrics.record("resolved")
+        return ticket
+
+    @app.post("/tickets/{ticket_id}/assign", response_model=TicketOut)
+    def assign_ticket(
+        ticket_id: int,
+        body: AssignIn,
+        lead_email: LeadEmail,
+        service: TicketServiceDep,
+        metrics: MetricsDep,
+    ) -> Ticket:
+        ticket = service.assign(lead_email, ticket_id, body.agent_email, datetime.now(UTC))
+        metrics.record("assigned")
         return ticket
 
     @app.get("/queue", response_model=list[TicketOut])

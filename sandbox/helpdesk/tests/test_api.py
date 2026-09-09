@@ -39,7 +39,7 @@ def test_api_create_claim_resolve_flow(client: TestClient) -> None:
 
     metrics = client.get("/metrics", headers={"X-Helpdesk-Key": LEAD_KEY})
     assert metrics.status_code == 200
-    assert metrics.json() == {"created": 1, "claimed": 1, "resolved": 1}
+    assert metrics.json() == {"created": 1, "claimed": 1, "resolved": 1, "assigned": 0}
 
 
 def test_api_metrics_requires_lead(client: TestClient) -> None:

@@ -10,7 +10,7 @@ import threading
 class QueueMetrics:
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._counts = {"created": 0, "claimed": 0, "resolved": 0}
+        self._counts = {"created": 0, "claimed": 0, "resolved": 0, "assigned": 0}
 
     def record(self, name: str) -> None:
         with self._lock:
