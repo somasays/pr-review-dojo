@@ -42,3 +42,8 @@ def test_allocate_sums_exactly():
 def test_invalid_currency():
     with pytest.raises(ValueError):
         Money.of("1", "usd")
+
+
+def test_percent_down_floors_to_the_cent():
+    assert Money.of("19.99").percent_down(Decimal("5")).amount == Decimal("0.99")
+    assert Money.of("100.00").percent_down(Decimal("12")).amount == Decimal("12.00")

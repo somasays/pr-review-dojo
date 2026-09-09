@@ -7,7 +7,7 @@ used for money; see README conventions.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Self
 
 CENTS = Decimal("0.01")
@@ -77,6 +77,11 @@ class Money:
     def percent(self, pct: Decimal) -> Money:
         """Return pct percent of this amount, rounded half up to cents."""
         return Money(self.amount * pct / Decimal(100), self.currency)
+
+    def percent_down(self, pct: Decimal) -> Money:
+        """Return pct percent of this amount, rounded half up to cents."""
+        exact = self.amount * pct / Decimal(100)
+        return Money(exact.quantize(CENTS, rounding=ROUND_DOWN), self.currency)
 
     def allocate(self, parts: int) -> list[Money]:
         """Split into `parts` amounts that sum exactly to the original.

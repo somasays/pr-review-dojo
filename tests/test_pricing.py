@@ -7,10 +7,13 @@ from app.domain.pricing import (
     Discount,
     DiscountKind,
     Line,
+    VolumeTier,
     best_discount,
     quote,
     tax_rate_for,
+    tier_for,
     unit_price_after_discount,
+    volume_discount,
 )
 
 WIDGET = Line("WIDGET", Money.of("19.99"), 2)
@@ -73,3 +76,46 @@ def test_empty_order_rejected():
 
 def test_unit_price_after_discount():
     assert unit_price_after_discount(WIDGET, Money.of("1.00")).amount == Decimal("19.49")
+
+
+def test_volume_tier_lookup():
+    small = tier_for(12)
+    assert small is not None
+    assert small.percent_off == Decimal("5")
+    assert small.code == "VOLUME10"
+    big = tier_for(60)
+    assert big is not None
+    assert big.percent_off == Decimal("12")
+    assert tier_for(3) is None
+
+
+def test_volume_discount_amounts():
+    assert volume_discount(Money.of("100.00"), 60).amount == Decimal("12.00")
+    assert volume_discount(Money.of("100.00"), 12).amount == Decimal("5.00")
+    assert volume_discount(Money.of("100.00"), 3).is_zero()
+
+
+def test_volume_discount_floors_fractional_cents():
+    # 5 percent of 19.99 is 0.9995, which must not round up to a full cent.
+    assert volume_discount(Money.of("19.99"), 12).amount == Decimal("0.99")
+
+
+def test_quote_applies_volume_tier():
+    q = quote([Line("PEN", Money.of("2.00"), 20)], [], "US-OR")
+    assert q.subtotal.amount == Decimal("40.00")
+    assert q.discount.amount == Decimal("2.00")
+    assert q.total.amount == Decimal("38.00")
+    assert q.applied_codes == ("VOLUME10",)
+
+
+def test_quote_below_first_tier_is_unchanged():
+    q = quote([Line("PEN", Money.of("2.00"), 4)], [], "US-OR")
+    assert q.discount.is_zero()
+    assert q.total.amount == Decimal("8.00")
+
+
+def test_tier_rejects_percent_over_100():
+    with pytest.raises(ValueError):
+        VolumeTier(10, Decimal("120"))
+    with pytest.raises(ValueError):
+        VolumeTier(0, Decimal("5"))
