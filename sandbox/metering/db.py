@@ -70,10 +70,19 @@ class Reading(Base):
 
 
 class Bill(Base):
+    """A bill, or a bill adjustment: a Bill row with `adjusts_bill_id`
+    pointing at the bill it adjusts and `correction_reading_id` recording
+    the correction that produced it. The bill it adjusts is never
+    modified."""
+
     __tablename__ = "bills"
     __table_args__ = (
         UniqueConstraint(
-            "account_id", "period_start", "period_end", name="uq_bills_account_period"
+            "account_id",
+            "period_start",
+            "period_end",
+            "adjusts_bill_id",
+            name="uq_bills_account_period",
         ),
     )
 
@@ -84,6 +93,10 @@ class Bill(Base):
     kwh: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    adjusts_bill_id: Mapped[int | None] = mapped_column(ForeignKey("bills.id"), nullable=True)
+    correction_reading_id: Mapped[int | None] = mapped_column(
+        ForeignKey("readings.id"), nullable=True
+    )
 
 
 def ensure_aware_utc(dt: datetime) -> None:
