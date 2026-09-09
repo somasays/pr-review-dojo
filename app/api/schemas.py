@@ -66,7 +66,17 @@ class OrderOut(BaseModel):
     total: Decimal
     discount_code: str | None
     created_at: datetime
+    last_event_at: datetime | None
     items: list[OrderItemOut]
+
+
+class OrderEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    from_status: str | None
+    to_status: str
+    actor: str
+    occurred_at: datetime
 
 
 class Page[T](BaseModel):
