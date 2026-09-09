@@ -59,6 +59,16 @@ def fee_for(minutes: int, card: RateCard) -> Decimal:
     return (Decimal(cents) / 100).quantize(CENTS, rounding=ROUND_HALF_UP)
 
 
+def pass_covers(valid_from: datetime, valid_to: datetime, at: datetime) -> bool:
+    """Whether `at` falls within a pass covering [valid_from, valid_to]."""
+    return valid_from <= at <= valid_to
+
+
+def pass_price(months: int, monthly_cents: int) -> Decimal:
+    """Price for a pass covering `months` months at `monthly_cents` a month."""
+    return (Decimal(months * monthly_cents) / 100).quantize(CENTS, rounding=ROUND_HALF_UP)
+
+
 class TicketStatus(Enum):
     OPEN = "open"
     PAID = "paid"

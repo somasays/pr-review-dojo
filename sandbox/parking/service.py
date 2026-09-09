@@ -6,15 +6,23 @@ sandbox/parking/README.md)."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from sandbox.parking.db import Ticket, coerce_utc, ensure_aware_utc
-from sandbox.parking.domain.pricing import RateCard, TicketStatus, billable_minutes, fee_for
+from sandbox.parking.db import Pass, Ticket, coerce_utc, ensure_aware_utc
+from sandbox.parking.domain.pricing import (
+    RateCard,
+    TicketStatus,
+    billable_minutes,
+    fee_for,
+    pass_price,
+)
 from sandbox.parking.domain.pricing import transition as transition_status
-from sandbox.parking.repo import GarageRepo, TicketRepo
+from sandbox.parking.repo import GarageRepo, PassRepo, TicketRepo
 
 PAID_GRACE = timedelta(minutes=15)
+_DEFAULT_MONTHLY_CENTS = 5000
 
 
 class NotFound(Exception):
@@ -33,11 +41,16 @@ class NotPaid(Exception):
     pass
 
 
+class OverlappingPass(Exception):
+    pass
+
+
 class ParkingService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.garages = GarageRepo(session)
         self.tickets = TicketRepo(session)
+        self.passes = PassRepo(session)
 
     def enter(self, garage_id: int, plate: str, now: datetime) -> Ticket:
         """Open a ticket for `plate` in `garage_id`, rejecting a full
@@ -58,20 +71,46 @@ class ParkingService:
         return self.tickets.add(ticket)
 
     def pay(self, ticket_id: int, now: datetime, card: RateCard) -> Ticket:
-        """Compute the fee for the time parked so far, transition the
-        ticket to paid, and record `paid_at`."""
+        """Compute the fee, transition the ticket to paid, and record
+        `paid_at`. Free if the plate has an active pass for this garage."""
         ensure_aware_utc(now)
 
         ticket = self.tickets.get(ticket_id)
         if ticket is None:
             raise NotFound(f"ticket {ticket_id} not found")
 
-        minutes = billable_minutes(coerce_utc(ticket.entered_at), now)
-        ticket.fee = fee_for(minutes, card)
-        ticket.status = transition_status(TicketStatus(ticket.status), TicketStatus.PAID).value
+        active_pass = self.passes.active_for_plate(ticket.garage_id, ticket.plate, now)
+        if active_pass is not None:
+            minutes = billable_minutes(coerce_utc(ticket.entered_at), now)
+            ticket.fee = Decimal("0.00")
+        else:
+            minutes = billable_minutes(coerce_utc(ticket.entered_at), now)
+            ticket.fee = fee_for(minutes, card)
+            ticket.status = transition_status(TicketStatus(ticket.status), TicketStatus.PAID).value
+
         ticket.paid_at = now
         self.session.flush()
         return ticket
+
+    def buy_pass(
+        self, garage_id: int, plate: str, months: int, starts_at: datetime, notify: bool = False
+    ) -> Pass:
+        """Sell a `months`-month pass for `plate` in `garage_id`, starting
+        `starts_at`. Only one pass may be active for a plate at a time."""
+        ensure_aware_utc(starts_at)
+
+        existing = self.passes.active_for_plate(garage_id, plate, starts_at)
+        if existing is not None:
+            raise OverlappingPass(
+                f"plate {plate!r} already has an active pass in garage {garage_id}"
+            )
+
+        valid_to = starts_at + timedelta(days=30 * months)
+        price = pass_price(months, _DEFAULT_MONTHLY_CENTS)
+        pass_ = Pass(
+            garage_id=garage_id, plate=plate, valid_from=starts_at, valid_to=valid_to, price=price
+        )
+        return self.passes.add(pass_)
 
     def exit(self, ticket_id: int, now: datetime, card: RateCard) -> Ticket:
         """Close a paid ticket. Within 15 minutes of `paid_at` the fee

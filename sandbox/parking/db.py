@@ -42,6 +42,20 @@ class Ticket(Base):
     status: Mapped[str] = mapped_column(String(10), nullable=False, default=TicketStatus.OPEN.value)
 
 
+class Pass(Base):
+    """A prepaid, half-open [valid_from, valid_to) window covering a
+    plate's parking in one garage without a per-visit fee."""
+
+    __tablename__ = "passes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    garage_id: Mapped[int] = mapped_column(ForeignKey("garages.id"), nullable=False)
+    plate: Mapped[str] = mapped_column(String(20), nullable=False)
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valid_to: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+
+
 def ensure_aware_utc(dt: datetime) -> None:
     """Reject a naive datetime; every datetime here is timezone-aware UTC."""
     if dt.tzinfo is None:
