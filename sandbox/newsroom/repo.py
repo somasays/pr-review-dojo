@@ -67,6 +67,18 @@ class PlacementRepo:
         )
         return self.session.scalars(stmt).all()
 
+    def for_section_overlapping(
+        self, section_id: int, start: datetime, end: datetime
+    ) -> Sequence[Placement]:
+        """Placements in this section, any slot, whose half-open window
+        overlaps [start, end)."""
+        stmt = select(Placement).where(
+            Placement.section_id == section_id,
+            Placement.window_start < end,
+            Placement.window_end > start,
+        )
+        return self.session.scalars(stmt).all()
+
     def live_for_section(self, section_id: int, at: datetime) -> list[PlacementView]:
         """Placements for published articles in this section whose window
         covers `at`, as PlacementView rows ready for domain ranking."""
@@ -91,6 +103,7 @@ class PlacementRepo:
                 boost=article.editorial_boost,
                 window_start=coerce_utc(placement.window_start),
                 window_end=coerce_utc(placement.window_end),
+                created_by=placement.created_by,
             )
             for placement, article in rows
         ]
