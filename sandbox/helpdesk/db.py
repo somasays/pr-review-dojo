@@ -25,6 +25,7 @@ class Agent(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
 
 
 class Ticket(Base):
