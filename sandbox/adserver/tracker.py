@@ -4,6 +4,7 @@ sandbox/adserver/README.md convention 5: one lock guards the tracker."""
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
 
@@ -20,11 +21,18 @@ class SpendTracker:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.counts: dict[CampaignDay, int] = {}
+        self._before_read: Callable[[], None] = lambda: None  # test hook, no-op in production
 
     def record(self, campaign_id: int, day: date) -> None:
         with self._lock:
             key = (campaign_id, day)
             self.counts[key] = self.counts.get(key, 0) + 1
+
+    def count_for(self, campaign_id: int, day: date) -> int:
+        """Locked read of the in-memory count for one campaign and day."""
+        self._before_read()
+        with self._lock:
+            return self.counts.get((campaign_id, day), 0)
 
     def spent_today(self, campaign_id: int, day: date, cpm: Decimal, flushed: Decimal) -> Decimal:
         """The flushed amount plus the in-memory count, priced at cpm."""

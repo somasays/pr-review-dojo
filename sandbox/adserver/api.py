@@ -176,11 +176,8 @@ def create_app() -> FastAPI:
         return service.end(ops, campaign_id)
 
     @app.post("/campaigns/{campaign_id}/carryover", response_model=CarryoverOut)
-    def apply_carryover(
-        campaign_id: int, identity: Identity, service: CampaignServiceDep
-    ) -> Carryover:
-        _role, email = identity
-        return service.apply_carryover(email, campaign_id, datetime.now(UTC).date())
+    def apply_carryover(campaign_id: int, ops: OpsEmail, service: CampaignServiceDep) -> Carryover:
+        return service.apply_carryover(ops, campaign_id, datetime.now(UTC).date())
 
     @app.post("/serve/{campaign_id}", response_model=ServeOut)
     def serve(campaign_id: int, _ops: OpsEmail, service: ServingServiceDep) -> ServeOut:
