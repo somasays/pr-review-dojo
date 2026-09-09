@@ -55,6 +55,18 @@ class NotificationService:
         log.info("sending %s to %s (key=%s)", message.subject, message.to, message.dedupe_key)
         retry(lambda: self.sender.send(message), self.policy, sleep=lambda _s: None)
 
+    async def send_batch(self, messages: list[Message]) -> None:
+        """Send a batch of messages from the async worker.
+
+        Used for digests, where one task produces several notifications and
+        the caller only cares that every message was attempted.
+        """
+        for message in messages:
+            log.info(
+                "batch sending %s to %s (key=%s)", message.subject, message.to, message.dedupe_key
+            )
+            retry(lambda: self.sender.send(message), self.policy)
+
     def order_confirmed(self, email: str, order_id: int, total: str) -> None:
         self._deliver(
             Message(
