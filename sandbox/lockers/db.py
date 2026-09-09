@@ -51,6 +51,7 @@ class Parcel(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     picked_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    redirect_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 def ensure_naive_utc(dt: datetime) -> None:
