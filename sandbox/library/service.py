@@ -45,6 +45,7 @@ class ReturnResult:
 
 class LendingService:
     def __init__(self, session: Session) -> None:
+        self.session = session
         self.patrons = PatronRepo(session)
         self.items = ItemRepo(session)
         self.loans = LoanRepo(session)
@@ -103,6 +104,39 @@ class LendingService:
         loan.status = transition(LoanStatus(loan.status), LoanStatus.RETURNED).value
         loan.returned_on = today
         return ReturnResult(loan=loan, fine=fine)
+
+    def renew_loan(self, loan_id: int, patron_email: str, today: date) -> Loan:
+        """Renew an active loan, extending its due date from its current due date.
+
+        Any fine already accrued is frozen onto the loan before the due date
+        moves, so extending the loan never erases what is already owed.
+        """
+        patron = self.patrons.by_email(patron_email)
+        if patron is None:
+            raise NotFound(f"patron {patron_email!r} not found")
+        if patron.blocked:
+            raise NotAllowed(f"patron {patron_email!r} is blocked")
+        loan = self.loans.get(loan_id)
+        if loan is None:
+            raise NotFound(f"loan {loan_id} not found")
+        if loan.patron_id != patron.id:
+            raise NotAllowed(f"loan {loan_id} does not belong to {patron_email!r}")
+        if loan.status == "lost":
+            raise NotAllowed(f"loan {loan_id} is lost and cannot be renewed")
+        if loan.status == LoanStatus.RETURNED.value:
+            raise NotAllowed(f"loan {loan_id} has already been returned")
+        if loan.renewals > MAX_RENEWALS:
+            raise NotAllowed(f"loan {loan_id} has reached the maximum number of renewals")
+
+        fine_so_far = fine_for(loan.due_on, today, GRACE_DAYS, FINE_PER_DAY, FINE_CAP)
+        loan.frozen_fine = loan.frozen_fine + fine_so_far
+        loan.due_on = due_date(loan.due_on, LOAN_DAYS, WEEKENDS_EXCLUDED)
+        loan.renewals += 1
+        self.session.commit()
+
+        if self.holds.other_patron_holds(loan.item_id, patron.id):
+            raise NotAllowed(f"item {loan.item_id} is held for another patron")
+        return loan
 
     def place_hold(self, patron_email: str, item_id: int, now: datetime) -> Hold:
         """Place a hold for a patron on an item."""

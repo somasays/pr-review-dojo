@@ -14,10 +14,21 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
+from decimal import Decimal
 from functools import lru_cache
 from os import environ
 
-from sqlalchemy import Boolean, Date, DateTime, Engine, ForeignKey, Integer, String, create_engine
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Engine,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    create_engine,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 
@@ -56,6 +67,11 @@ class Loan(Base):
     # a loan is warned about at most once per day no matter how many times
     # the job runs.
     last_notified_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Any fine that had already accrued at the moment of the loan's most
+    # recent renewal, locked in so extending the due date never erases it.
+    frozen_fine: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0.00")
+    )
 
 
 class Hold(Base):

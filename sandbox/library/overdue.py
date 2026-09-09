@@ -38,7 +38,12 @@ def notify_overdue(session_factory: sessionmaker[Session], today: date, notifier
             patron = patrons.get(loan.patron_id)
             if patron is None:
                 continue
-            fine_so_far = fine_for(loan.due_on, today, GRACE_DAYS, FINE_PER_DAY, FINE_CAP)
+            # A loan may already carry a fine frozen at its last renewal; the
+            # amount owed is that frozen fine plus whatever has accrued
+            # against the loan's current due date since then.
+            fine_so_far = loan.frozen_fine + fine_for(
+                loan.due_on, today, GRACE_DAYS, FINE_PER_DAY, FINE_CAP
+            )
             notifier(patron.email, loan, fine_so_far)
             loan.last_notified_on = today
             notified += 1
