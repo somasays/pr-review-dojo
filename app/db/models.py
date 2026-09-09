@@ -39,6 +39,15 @@ class Customer(Base):
     orders: Mapped[list[Order]] = relationship(back_populates="customer")
 
 
+class GiftCard(Base):
+    __tablename__ = "gift_cards"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
+
+
 class Product(Base):
     __tablename__ = "products"
 
@@ -67,6 +76,10 @@ class Order(Base):
     tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
     discount_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    gift_card_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    gift_card_redeemed: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, default=Decimal("0")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -78,6 +91,11 @@ class Order(Base):
     items: Mapped[list[OrderItem]] = relationship(
         back_populates="order", cascade="all, delete-orphan", lazy="selectin"
     )
+
+    @property
+    def remaining_charge(self) -> Decimal:
+        """What is still owed after any gift card redemption."""
+        return self.total - self.gift_card_redeemed
 
 
 class OrderItem(Base):

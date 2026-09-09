@@ -25,6 +25,7 @@ def create_order(principal: CurrentPrincipal, body: OrderCreate, service: Orders
         idempotency_key=body.idempotency_key,
         items=[ItemRequest(i.sku, i.quantity) for i in body.items],
         discount_codes=body.discount_codes,
+        gift_card_code=body.gift_card_code,
     )
     try:
         return service.create(cmd)
