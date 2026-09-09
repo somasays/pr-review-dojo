@@ -28,6 +28,9 @@ An eighth, self-contained practice codebase lives at `sandbox/parking/`; see
 A ninth, self-contained practice codebase lives at `sandbox/helpdesk/`; see
 `sandbox/helpdesk/README.md` for what it is and its own conventions.
 
+A tenth, self-contained practice codebase lives at `sandbox/newsroom/`; see
+`sandbox/newsroom/README.md` for what it is and its own conventions.
+
 ## Layout
 
 | Package | What it does |
