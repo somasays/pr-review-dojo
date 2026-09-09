@@ -9,7 +9,15 @@ def test_me_requires_key(client):
 def test_me_returns_allowlisted_fields(client):
     r = client.get("/customers/me", headers={"X-API-Key": CUSTOMER_KEY})
     assert r.status_code == 200
-    assert set(r.json()) == {"id", "email", "name", "region", "created_at"}
+    assert set(r.json()) == {
+        "id",
+        "email",
+        "name",
+        "first_name",
+        "last_name",
+        "region",
+        "created_at",
+    }
 
 
 def test_list_is_admin_only(client):

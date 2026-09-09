@@ -6,6 +6,7 @@ from app.api.deps import AdminPrincipal, CurrentPrincipal, DbSession, PageParams
 from app.api.schemas import CustomerCreate, CustomerOut, Page
 from app.db.models import Customer
 from app.db.repositories import CustomerRepository
+from app.domain.names import split_full_name
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
@@ -26,4 +27,13 @@ def create_customer(db: DbSession, _admin: AdminPrincipal, body: CustomerCreate)
     repo = CustomerRepository(db)
     if repo.by_email(body.email) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "email already registered")
-    return repo.add(Customer(email=body.email, name=body.name, region=body.region))
+    first_name, last_name = split_full_name(body.name)
+    return repo.add(
+        Customer(
+            email=body.email,
+            name=body.name,
+            first_name=first_name,
+            last_name=last_name,
+            region=body.region,
+        )
+    )

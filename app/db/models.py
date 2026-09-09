@@ -26,10 +26,13 @@ class Base(DeclarativeBase):
 
 class Customer(Base):
     __tablename__ = "customers"
+    __table_args__ = (Index("ix_customers_last_name_first_name", "last_name", "first_name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    first_name: Mapped[str] = mapped_column(String(60), nullable=False, default="")
+    last_name: Mapped[str] = mapped_column(String(60), nullable=False, default="")
     region: Mapped[str] = mapped_column(String(8), nullable=False, default="US-CA")
     api_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -37,6 +40,19 @@ class Customer(Base):
     )
 
     orders: Mapped[list[Order]] = relationship(back_populates="customer")
+
+
+class CustomerNameBackfill(Base):
+    """Audit row written when a display name is split, so support can undo it."""
+
+    __tablename__ = "customer_name_backfill_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
+    original_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    split_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class Product(Base):
