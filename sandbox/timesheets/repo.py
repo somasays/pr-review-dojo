@@ -54,10 +54,15 @@ class TimesheetRepo:
 
     def open_for_period(self, worker_id: int, period_start: date) -> Timesheet | None:
         """The open timesheet for this worker and period, or None if the
-        period does not have one yet."""
+        period does not have one yet (or its only timesheet is no longer
+        open)."""
         stmt = (
             select(Timesheet)
-            .where(Timesheet.worker_id == worker_id, Timesheet.period_start == period_start)
+            .where(
+                Timesheet.worker_id == worker_id,
+                Timesheet.period_start == period_start,
+                Timesheet.status == TimesheetStatus.OPEN.value,
+            )
             .order_by(Timesheet.version.desc())
             .limit(1)
         )
@@ -93,6 +98,11 @@ class ShiftRepo:
 
     def for_timesheet(self, timesheet_id: int) -> Sequence[Shift]:
         stmt = select(Shift).where(Shift.timesheet_id == timesheet_id).order_by(Shift.start_utc)
+        return self.session.scalars(stmt).all()
+
+    def for_group(self, group_id: int) -> Sequence[Shift]:
+        """Every part of a shift split at local midnight, oldest first."""
+        stmt = select(Shift).where(Shift.group_id == group_id).order_by(Shift.start_utc)
         return self.session.scalars(stmt).all()
 
     def overlapping(

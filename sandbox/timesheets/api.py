@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session, sessionmaker
 
 from sandbox.timesheets.db import Timesheet, get_session_factory
-from sandbox.timesheets.repo import TimesheetRepo, WorkerRepo
+from sandbox.timesheets.repo import ShiftRepo, TimesheetRepo, WorkerRepo
 from sandbox.timesheets.service import (
     InvalidShift,
     NotAllowed,
@@ -145,9 +145,11 @@ app = FastAPI(title="Timesheets", version="0.1.0")
 
 
 @app.post("/shifts", response_model=ShiftOut, status_code=status.HTTP_201_CREATED)
-def create_shift(body: ShiftCreate, worker_email: WorkerEmail, service: ShiftServiceDep):
+def create_shift(
+    body: ShiftCreate, worker_email: WorkerEmail, service: ShiftServiceDep, db: DbSession
+):
     try:
-        return service.record(worker_email, body.start_utc, body.end_utc, body.note)
+        shift = service.record(worker_email, body.start_utc, body.end_utc, body.note)
     except NotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except NotAllowed as exc:
@@ -156,6 +158,22 @@ def create_shift(body: ShiftCreate, worker_email: WorkerEmail, service: ShiftSer
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     except InvalidShift as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    # A shift split at local midnight is stored as two rows; the response
+    # reports the total minutes of the whole shift the worker clocked, not
+    # just the first part.
+    total_minutes = shift.minutes
+    if shift.group_id is not None:
+        total_minutes = sum(part.minutes for part in ShiftRepo(db).for_group(shift.group_id))
+    return ShiftOut(
+        id=shift.id,
+        timesheet_id=shift.timesheet_id,
+        start_utc=shift.start_utc,
+        end_utc=body.end_utc,
+        minutes=total_minutes,
+        note=shift.note,
+        group_id=shift.group_id,
+    )
 
 
 @app.post("/timesheets/{period_start}/submit", response_model=TimesheetOut)

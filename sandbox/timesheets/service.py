@@ -84,6 +84,14 @@ def period_totals(shifts: Sequence[Shift], tz: str, rules: Rules) -> tuple[int, 
     return weekly_regular, daily_overtime + weekly_extra_overtime, total_night
 
 
+def _new_shift(
+    timesheet_id: int, start_utc: datetime, end_utc: datetime, minutes: int, note: str | None
+) -> Shift:
+    return Shift(
+        timesheet_id=timesheet_id, start_utc=start_utc, end_utc=end_utc, minutes=minutes, note=note
+    )
+
+
 class ShiftService:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.session_factory = session_factory
@@ -113,8 +121,7 @@ class ShiftService:
 
             boundary = local_midnight_after(start_utc, worker.timezone)
             crosses_midnight = boundary < end_utc
-            check_end = boundary if crosses_midnight else end_utc
-            if shifts.overlapping(worker.id, start_utc, check_end):
+            if shifts.overlapping(worker.id, start_utc, end_utc):
                 raise Overlap("this shift overlaps a shift already on record")
 
             period_start = period_start_for(local_day(start_utc, worker.timezone))
@@ -137,22 +144,14 @@ class ShiftService:
             first_minutes = (
                 shift_minutes(start_utc, boundary) if crosses_midnight else total_minutes
             )
-            first = shifts.add(
-                Shift(
-                    timesheet_id=timesheet.id,
-                    start_utc=start_utc,
-                    end_utc=first_end,
-                    minutes=first_minutes,
-                    note=note,
-                )
-            )
+            first = shifts.add(_new_shift(timesheet.id, start_utc, first_end, first_minutes, note))
 
             if not crosses_midnight:
                 return first
 
             second_minutes = total_minutes - first_minutes
             second_local_day = local_day(boundary, worker.timezone)
-            second_period_start = second_local_day - timedelta(days=second_local_day.weekday())
+            second_period_start = period_start_for(second_local_day)
             if second_period_start == period_start:
                 second_timesheet = timesheet
             else:
@@ -168,13 +167,7 @@ class ShiftService:
                     )
 
             second = shifts.add(
-                Shift(
-                    timesheet_id=second_timesheet.id,
-                    start_utc=boundary,
-                    end_utc=end_utc,
-                    minutes=second_minutes,
-                    note=note,
-                )
+                _new_shift(second_timesheet.id, boundary, end_utc, second_minutes, note)
             )
             first.group_id = first.id
             second.group_id = first.id

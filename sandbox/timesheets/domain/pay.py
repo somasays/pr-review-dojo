@@ -10,7 +10,7 @@ and the other sandboxes.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from zoneinfo import ZoneInfo
@@ -65,10 +65,9 @@ def local_midnight_after(start_utc: datetime, tz: str) -> datetime:
     _ensure_aware(start_utc)
     zone = ZoneInfo(tz)
     start_local = start_utc.astimezone(zone)
-    hours_to_midnight = _MINUTES_PER_DAY / _MINUTES_PER_HOUR - (
-        start_local.hour + start_local.minute / _MINUTES_PER_HOUR
-    )
-    return start_utc + timedelta(hours=hours_to_midnight)
+    next_day = start_local.date() + timedelta(days=1)
+    midnight_local = datetime(next_day.year, next_day.month, next_day.day, tzinfo=zone)
+    return midnight_local.astimezone(UTC)
 
 
 def _night_window_duration_hours(rules: Rules) -> int:

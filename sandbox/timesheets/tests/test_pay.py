@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -12,6 +13,7 @@ from sandbox.timesheets.domain.pay import (
     Rules,
     TimesheetStatus,
     local_day,
+    local_midnight_after,
     night_minutes,
     pay_cents,
     shift_minutes,
@@ -37,6 +39,24 @@ def test_local_day_crosses_midnight_against_utc_date() -> None:
     # 06:30 UTC on Jan 2 is 22:30 on Jan 1 in Los Angeles (UTC-8, no DST in January).
     start = datetime(2026, 1, 2, 6, 30, tzinfo=UTC)
     assert local_day(start, "America/Los_Angeles") == datetime(2026, 1, 1).date()
+
+
+def test_local_midnight_after_returns_the_next_local_midnight_in_utc() -> None:
+    # 21:00 on Jan 5 in Los Angeles (UTC-8 in January).
+    start = datetime(2026, 1, 6, 5, 0, tzinfo=UTC)
+    boundary = local_midnight_after(start, "America/Los_Angeles")
+    assert boundary == datetime(2026, 1, 6, 8, 0, tzinfo=UTC)
+
+
+def test_local_midnight_after_on_the_dst_spring_forward_day() -> None:
+    # Los Angeles moves its clocks forward at 02:00 on 2026-03-08, so the
+    # calendar day from 2026-03-08 00:00 to 2026-03-09 00:00 is only 23
+    # real hours long. A shift starting before the jump must still split at
+    # the true local midnight, not 24 real hours after it started.
+    start = datetime(2026, 3, 8, 1, 0, tzinfo=ZoneInfo("America/Los_Angeles")).astimezone(UTC)
+    boundary = local_midnight_after(start, "America/Los_Angeles")
+    expected = datetime(2026, 3, 9, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles")).astimezone(UTC)
+    assert boundary == expected
 
 
 def test_shift_minutes_rejects_non_positive_over_24h_and_fractional_durations() -> None:
