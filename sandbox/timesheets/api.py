@@ -119,6 +119,7 @@ class ShiftOut(BaseModel):
     end_utc: datetime
     minutes: int
     note: str | None
+    group_id: int | None
 
 
 class TimesheetOut(BaseModel):

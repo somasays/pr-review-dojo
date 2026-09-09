@@ -32,6 +32,19 @@ def test_timesheet_repo_current_for_returns_the_highest_version(
     assert len(repo.for_period(worker_id, period)) == 2
 
 
+def test_timesheet_repo_open_for_period(db: Session, seeded: dict[str, Worker]) -> None:
+    worker_id = seeded["priya"].id
+    period = date(2026, 1, 5)
+    repo = TimesheetRepo(db)
+
+    assert repo.open_for_period(worker_id, period) is None
+
+    opened = repo.add(Timesheet(worker_id=worker_id, period_start=period, version=1, status="open"))
+    found = repo.open_for_period(worker_id, period)
+    assert found is not None
+    assert found.id == opened.id
+
+
 def test_shift_repo_overlapping_only_matches_open_or_submitted_timesheets(
     db: Session, seeded: dict[str, Worker]
 ) -> None:

@@ -80,6 +80,7 @@ class Shift(Base):
     end_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     minutes: Mapped[int] = mapped_column(Integer, nullable=False)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    group_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 def ensure_aware_utc(dt: datetime) -> None:

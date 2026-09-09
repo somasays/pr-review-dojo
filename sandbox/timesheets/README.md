@@ -16,7 +16,12 @@ not import anything from any of them.
 - **Shift**: one span of clocked time, `start_utc` to `end_utc`, stored as
   aware UTC datetimes with a redundant integer-minute `minutes` column. A
   shift belongs to the local calendar day it starts on, not the day it
-  ends on.
+  ends on. A shift that crosses the worker's local midnight is recorded as
+  two rows, split at that boundary, so each part belongs to its own local
+  day for daily overtime and its own night-differential minutes. The two
+  rows share a `group_id` (the first row's own id) so the original clock-in
+  can still be shown as one entry. If the split lands in a different pay
+  period, the second row is added to that period's open timesheet.
 - **Pay period**: a Monday-to-Sunday, half-open week. `period_start` is
   always a Monday; the period runs through the following Sunday night.
 - **Timesheet**: one worker's shifts for one pay period. Its truth is

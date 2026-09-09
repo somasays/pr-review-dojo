@@ -52,6 +52,17 @@ class TimesheetRepo:
         )
         return self.session.scalars(stmt).first()
 
+    def open_for_period(self, worker_id: int, period_start: date) -> Timesheet | None:
+        """The open timesheet for this worker and period, or None if the
+        period does not have one yet."""
+        stmt = (
+            select(Timesheet)
+            .where(Timesheet.worker_id == worker_id, Timesheet.period_start == period_start)
+            .order_by(Timesheet.version.desc())
+            .limit(1)
+        )
+        return self.session.scalars(stmt).first()
+
     def for_period(self, worker_id: int, period_start: date) -> Sequence[Timesheet]:
         """Every version for this worker and period, oldest first."""
         stmt = (

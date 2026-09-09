@@ -19,6 +19,7 @@ from sandbox.timesheets.domain.pay import (
     Rules,
     TimesheetStatus,
     local_day,
+    local_midnight_after,
     night_minutes,
     pay_cents,
     shift_minutes,
@@ -91,10 +92,13 @@ class ShiftService:
         self, worker_email: str, start_utc: datetime, end_utc: datetime, note: str | None
     ) -> Shift:
         """Record one shift, adding it to the open timesheet for the shift's
-        local day's pay period, creating that timesheet if none exists.
-        Rejects shifts that overlap another one already on record."""
+        local day's pay period, creating that timesheet if none exists. A
+        shift that crosses the worker's local midnight is split into two
+        rows at that boundary, sharing a group_id, so each part belongs to
+        its own local day for daily overtime. Rejects shifts that overlap
+        another one already on record."""
         try:
-            minutes = shift_minutes(start_utc, end_utc)
+            total_minutes = shift_minutes(start_utc, end_utc)
         except ValueError as exc:
             raise InvalidShift(str(exc)) from exc
 
@@ -107,7 +111,10 @@ class ShiftService:
             if worker is None or not worker.active:
                 raise NotFound(f"worker {worker_email!r} not found or inactive")
 
-            if shifts.overlapping(worker.id, start_utc, end_utc):
+            boundary = local_midnight_after(start_utc, worker.timezone)
+            crosses_midnight = boundary < end_utc
+            check_end = boundary if crosses_midnight else end_utc
+            if shifts.overlapping(worker.id, start_utc, check_end):
                 raise Overlap("this shift overlaps a shift already on record")
 
             period_start = period_start_for(local_day(start_utc, worker.timezone))
@@ -126,15 +133,52 @@ class ShiftService:
                     f"the timesheet for {period_start.isoformat()} is not open for edits"
                 )
 
-            return shifts.add(
+            first_end = boundary if crosses_midnight else end_utc
+            first_minutes = (
+                shift_minutes(start_utc, boundary) if crosses_midnight else total_minutes
+            )
+            first = shifts.add(
                 Shift(
                     timesheet_id=timesheet.id,
                     start_utc=start_utc,
-                    end_utc=end_utc,
-                    minutes=minutes,
+                    end_utc=first_end,
+                    minutes=first_minutes,
                     note=note,
                 )
             )
+
+            if not crosses_midnight:
+                return first
+
+            second_minutes = total_minutes - first_minutes
+            second_local_day = local_day(boundary, worker.timezone)
+            second_period_start = second_local_day - timedelta(days=second_local_day.weekday())
+            if second_period_start == period_start:
+                second_timesheet = timesheet
+            else:
+                second_timesheet = timesheets.open_for_period(worker.id, second_period_start)
+                if second_timesheet is None:
+                    second_timesheet = timesheets.add(
+                        Timesheet(
+                            worker_id=worker.id,
+                            period_start=second_period_start,
+                            version=1,
+                            status=TimesheetStatus.OPEN.value,
+                        )
+                    )
+
+            second = shifts.add(
+                Shift(
+                    timesheet_id=second_timesheet.id,
+                    start_utc=boundary,
+                    end_utc=end_utc,
+                    minutes=second_minutes,
+                    note=note,
+                )
+            )
+            first.group_id = first.id
+            second.group_id = first.id
+            return first
 
 
 class TimesheetService:
