@@ -3,8 +3,7 @@ repositories. Each public method opens exactly one unit of work."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from os import environ
+from datetime import datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -34,12 +33,23 @@ class SlotTaken(Exception):
     pass
 
 
+def _ensure_slot_free(
+    placement_repo: PlacementRepo, section_id: int, slot: int, start: datetime, end: datetime
+) -> None:
+    if placement_repo.for_slot_overlapping(section_id, slot, start, end):
+        raise SlotTaken(f"slot {slot} in section {section_id} is already taken")
+
+
 class CurationService:
     def __init__(
-        self, session_factory: sessionmaker[Session], cache: HomeScreenCache | None = None
+        self,
+        session_factory: sessionmaker[Session],
+        cache: HomeScreenCache | None = None,
+        default_takeover_minutes: int = 30,
     ) -> None:
         self.session_factory = session_factory
         self.cache = cache
+        self.default_takeover_minutes = default_takeover_minutes
 
     def publish(self, editor_email: str, article_id: int, now: datetime) -> Article:
         """Move an article from draft to published."""
@@ -88,8 +98,7 @@ class CurationService:
                 raise NotAllowed(f"article {article_id} is not published")
 
             placement_repo = PlacementRepo(session)
-            if placement_repo.for_slot_overlapping(section_id, slot, window_start, window_end):
-                raise SlotTaken(f"slot {slot} in section {section_id} is already taken")
+            _ensure_slot_free(placement_repo, section_id, slot, window_start, window_end)
 
             placement = Placement(
                 section_id=section_id,
@@ -144,8 +153,8 @@ class CurationService:
                 raise NotAllowed(f"article {article_id} is not published")
 
             if minutes is None:
-                minutes = int(environ.get("NEWSROOM_DEFAULT_TAKEOVER_MINUTES", "30"))
-            window_start, window_end = takeover_window(datetime.now(UTC), minutes)
+                minutes = self.default_takeover_minutes
+            window_start, window_end = takeover_window(now, minutes)
 
             placement_repo = PlacementRepo(session)
 
@@ -168,19 +177,7 @@ class CurationService:
                 by_id[placement_id].slot = new_slot
             session.flush()
 
-            # Slot 1 must be free before the takeover can go in.
-            if placement_repo.for_slot_overlapping(section_id, 1, window_start, window_end):
-                raise SlotTaken(f"slot 1 in section {section_id} is already taken")
-
-            # Refresh the home screen immediately instead of waiting for
-            # the next scheduled refresh.
-            sections = SectionRepo(session).all()
-            new_snapshot = {
-                s.id: build_home_screen(placement_repo.live_for_section(s.id, now), now)
-                for s in sections
-            }
-            if self.cache is not None:
-                self.cache.snapshot = new_snapshot
+            _ensure_slot_free(placement_repo, section_id, 1, window_start, window_end)
 
             placement = Placement(
                 section_id=section_id,
@@ -191,4 +188,16 @@ class CurationService:
                 pinned=True,
                 created_by=editor_email,
             )
-            return placement_repo.add(placement)
+            placement_repo.add(placement)
+
+        # Refresh now that the takeover has committed.
+        if self.cache is not None:
+            with unit_of_work(self.session_factory) as refresh_session:
+                sections = SectionRepo(refresh_session).all()
+                refresh_repo = PlacementRepo(refresh_session)
+                new_snapshot = {
+                    s.id: build_home_screen(refresh_repo.live_for_section(s.id, now), now)
+                    for s in sections
+                }
+            self.cache.replace(new_snapshot)
+        return placement

@@ -81,7 +81,7 @@ def shift_down(
     moves = []
     for placement_id, current_slot in placements_in_order:
         new_slot = current_slot + 1
-        if new_slot > slot_count + 1:
+        if new_slot > slot_count:
             continue
         moves.append((placement_id, new_slot))
     return moves
