@@ -77,3 +77,52 @@ def write_events_fixture(source_dir: str, with_duplicate: bool = True) -> None:
     with open(f"{source_dir}/events-0001.json", "w") as f:
         for e in events:
             f.write(json.dumps(e) + "\n")
+
+
+def paid_events_rows(base: datetime | None = None) -> list[dict]:
+    """Events where three orders reach paid across two customers."""
+    base = base or datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+    rows = [
+        {
+            "event_id": "p1",
+            "order_id": 1,
+            "customer_id": 1,
+            "status": "paid",
+            "total": "10.50",
+            "event_time": base.isoformat(),
+        },
+        {
+            "event_id": "p2",
+            "order_id": 2,
+            "customer_id": 1,
+            "status": "paid",
+            "total": "20.50",
+            "event_time": (base + timedelta(minutes=1)).isoformat(),
+        },
+        {
+            "event_id": "p3",
+            "order_id": 3,
+            "customer_id": 2,
+            "status": "paid",
+            "total": "30.50",
+            "event_time": (base + timedelta(minutes=2)).isoformat(),
+        },
+        {
+            "event_id": "p4",
+            "order_id": 4,
+            "customer_id": 2,
+            "status": "pending_payment",
+            "total": "40.50",
+            "event_time": (base + timedelta(minutes=3)).isoformat(),
+        },
+    ]
+    # The producer retries sends, so the same event can show up twice.
+    rows.append(dict(rows[1]))
+    return rows
+
+
+def write_paid_events_fixture(source_dir: str, filename: str = "events-0001.json") -> None:
+    os.makedirs(source_dir, exist_ok=True)
+    with open(f"{source_dir}/{filename}", "w") as f:
+        for e in paid_events_rows():
+            f.write(json.dumps(e) + "\n")
