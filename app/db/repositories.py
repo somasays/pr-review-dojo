@@ -9,8 +9,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, func, select
+from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import Customer, Order, OrderItem, Product
 from app.domain.order_state import OrderStatus
@@ -21,6 +21,19 @@ class NotFound(Exception):
         super().__init__(f"{entity} {key!r} not found")
         self.entity = entity
         self.key = key
+
+
+def _order_filters(
+    status: str | None, customer_id: int | None, created_since: datetime | None
+) -> list[ColumnElement[bool]]:
+    clauses: list[ColumnElement[bool]] = []
+    if status is not None:
+        clauses.append(Order.status == status)
+    if customer_id is not None:
+        clauses.append(Order.customer_id == customer_id)
+    if created_since is not None:
+        clauses.append(Order.created_at >= created_since)
+    return clauses
 
 
 class CustomerRepository:
@@ -104,6 +117,32 @@ class OrderRepository:
             .offset(offset)
         )
         return self.session.scalars(stmt).all()
+
+    def list_all(
+        self,
+        status: str | None = None,
+        customer_id: int | None = None,
+        created_since: datetime | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[Order]:
+        """Orders across every customer, optionally narrowed by the admin filters."""
+        stmt = select(Order).options(selectinload(Order.customer))
+        for clause in _order_filters(status, customer_id, created_since):
+            stmt = stmt.where(clause)
+        return self.session.scalars(stmt.limit(limit).offset(offset)).all()
+
+    def count_all(
+        self,
+        status: str | None = None,
+        customer_id: int | None = None,
+        created_since: datetime | None = None,
+    ) -> int:
+        """How many orders match the admin filters, ignoring pagination."""
+        stmt = select(func.count(Order.id))
+        for clause in _order_filters(status, customer_id, created_since):
+            stmt = stmt.where(clause)
+        return self.session.scalar(stmt) or 0
 
     def list_by_status(self, status: OrderStatus, limit: int = 100) -> Sequence[Order]:
         stmt = select(Order).where(Order.status == status).order_by(Order.id).limit(limit)

@@ -55,9 +55,13 @@ def get_principal(
     db: DbSession,
     settings: AppSettings,
     x_api_key: Annotated[str | None, Header()] = None,
+    x_on_behalf_of: Annotated[int | None, Header()] = None,
 ) -> Principal:
     if not x_api_key:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing X-API-Key")
+    if x_on_behalf_of is not None:
+        # Support staff read the customer-scoped endpoints as the customer sees them.
+        return Principal(customer_id=x_on_behalf_of, is_admin=False)
     if x_api_key in settings.admin_api_keys:
         return Principal(customer_id=None, is_admin=True)
     customer: Customer | None = CustomerRepository(db).by_api_key_hash(hash_api_key(x_api_key))
@@ -82,6 +86,7 @@ AdminPrincipal = Annotated[Principal, Depends(require_admin)]
 class Pagination:
     limit: int
     offset: int
+    max_limit: int
 
 
 def get_pagination(
@@ -89,7 +94,7 @@ def get_pagination(
     limit: Annotated[int, Query(ge=1)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Pagination:
-    return Pagination(limit=min(limit, settings.page_size_max), offset=offset)
+    return Pagination(limit=limit, offset=offset, max_limit=settings.page_size_max)
 
 
 PageParams = Annotated[Pagination, Depends(get_pagination)]

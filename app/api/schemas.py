@@ -82,3 +82,26 @@ class StatusCount(BaseModel):
 
 class ErrorOut(BaseModel):
     detail: str
+
+
+class AdminCustomerRef(BaseModel):
+    """Customer fields the admin order list shows next to each order."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
+    name: str
+    region: str
+    api_key_hash: str | None
+
+
+class AdminOrderOut(OrderOut):
+    customer_id: int
+    customer: AdminCustomerRef
+
+
+class AdminOrderPage(Page[AdminOrderOut]):
+    total: int
+    max_limit: int
+    item_count: int
