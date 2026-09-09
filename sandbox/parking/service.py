@@ -22,7 +22,6 @@ from sandbox.parking.domain.pricing import transition as transition_status
 from sandbox.parking.repo import GarageRepo, PassRepo, TicketRepo
 
 PAID_GRACE = timedelta(minutes=15)
-_DEFAULT_MONTHLY_CENTS = 5000
 
 
 class NotFound(Exception):
@@ -79,34 +78,36 @@ class ParkingService:
         if ticket is None:
             raise NotFound(f"ticket {ticket_id} not found")
 
+        minutes = billable_minutes(coerce_utc(ticket.entered_at), now)
+        fee = fee_for(minutes, card)
         active_pass = self.passes.active_for_plate(ticket.garage_id, ticket.plate, now)
         if active_pass is not None:
-            minutes = billable_minutes(coerce_utc(ticket.entered_at), now)
-            ticket.fee = Decimal("0.00")
-        else:
-            minutes = billable_minutes(coerce_utc(ticket.entered_at), now)
-            ticket.fee = fee_for(minutes, card)
-            ticket.status = transition_status(TicketStatus(ticket.status), TicketStatus.PAID).value
+            fee = Decimal("0.00")
 
+        ticket.fee = fee
+        ticket.status = transition_status(TicketStatus(ticket.status), TicketStatus.PAID).value
         ticket.paid_at = now
         self.session.flush()
         return ticket
 
     def buy_pass(
-        self, garage_id: int, plate: str, months: int, starts_at: datetime, notify: bool = False
+        self, garage_id: int, plate: str, months: int, starts_at: datetime, monthly_cents: int
     ) -> Pass:
         """Sell a `months`-month pass for `plate` in `garage_id`, starting
-        `starts_at`. Only one pass may be active for a plate at a time."""
+        `starts_at`. Only one pass may be active for a plate at a time; a
+        new one may start once every existing one has ended."""
         ensure_aware_utc(starts_at)
 
-        existing = self.passes.active_for_plate(garage_id, plate, starts_at)
-        if existing is not None:
-            raise OverlappingPass(
-                f"plate {plate!r} already has an active pass in garage {garage_id}"
-            )
-
         valid_to = starts_at + timedelta(days=30 * months)
-        price = pass_price(months, _DEFAULT_MONTHLY_CENTS)
+        for existing in self.passes.for_plate(garage_id, plate):
+            existing_from = coerce_utc(existing.valid_from)
+            existing_to = coerce_utc(existing.valid_to)
+            if starts_at < existing_to and existing_from < valid_to:
+                raise OverlappingPass(
+                    f"plate {plate!r} already has an active pass in garage {garage_id}"
+                )
+
+        price = pass_price(months, monthly_cents)
         pass_ = Pass(
             garage_id=garage_id, plate=plate, valid_from=starts_at, valid_to=valid_to, price=price
         )

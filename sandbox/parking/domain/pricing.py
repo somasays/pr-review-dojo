@@ -60,8 +60,9 @@ def fee_for(minutes: int, card: RateCard) -> Decimal:
 
 
 def pass_covers(valid_from: datetime, valid_to: datetime, at: datetime) -> bool:
-    """Whether `at` falls within a pass covering [valid_from, valid_to]."""
-    return valid_from <= at <= valid_to
+    """Whether `at` falls within the half-open pass window
+    [valid_from, valid_to)."""
+    return valid_from <= at < valid_to
 
 
 def pass_price(months: int, monthly_cents: int) -> Decimal:

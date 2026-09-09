@@ -16,7 +16,6 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from sandbox.parking.db import Pass, Ticket, get_session_factory, session_scope
@@ -40,6 +39,9 @@ DEFAULT_CARD = RateCard(
     daily_cap_cents=2000,
     lost_ticket_cents=5000,
 )
+
+# A single default monthly pass price. Same reasoning as DEFAULT_CARD.
+DEFAULT_MONTHLY_CENTS = 5000
 
 
 def _keys() -> set[str]:
@@ -163,7 +165,9 @@ def get_garage(garage_id: int, _attendant: Attendant, db: DbSession) -> GarageOu
 )
 def buy_pass(garage_id: int, body: PassIn, _attendant: Attendant, db: DbSession) -> Pass:
     try:
-        return ParkingService(db).buy_pass(garage_id, body.plate, body.months, body.starts_at)
+        return ParkingService(db).buy_pass(
+            garage_id, body.plate, body.months, body.starts_at, DEFAULT_MONTHLY_CENTS
+        )
     except OverlappingPass as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
@@ -171,9 +175,7 @@ def buy_pass(garage_id: int, body: PassIn, _attendant: Attendant, db: DbSession)
 @app.get("/garages/{garage_id}/passes/{plate}", response_model=PassOut)
 def get_active_pass(garage_id: int, plate: str, _attendant: Attendant, db: DbSession) -> Pass:
     now = datetime.now(UTC)
-    existing = db.scalars(select(Pass).where(Pass.plate == plate)).first()
-    lookup_garage_id = existing.garage_id if existing is not None else garage_id
-    active_pass = PassRepo(db).active_for_plate(lookup_garage_id, plate, now)
+    active_pass = PassRepo(db).active_for_plate(garage_id, plate, now)
     if active_pass is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no active pass for this plate")
     return active_pass
