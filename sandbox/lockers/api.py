@@ -19,8 +19,16 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from sandbox.lockers.db import get_session_factory
 from sandbox.lockers.domain.fit import Dimensions
+from sandbox.lockers.lockout import LockoutTracker, load_lockout_policy
 from sandbox.lockers.repo import CompartmentRepo
-from sandbox.lockers.service import DepositService, Expired, InvalidCode, NoSpace, PickupService
+from sandbox.lockers.service import (
+    DepositService,
+    Expired,
+    InvalidCode,
+    LockedOut,
+    NoSpace,
+    PickupService,
+)
 
 
 def _courier_keys() -> set[str]:
@@ -50,8 +58,25 @@ def get_deposit_service(session_factory: SessionFactoryDep) -> DepositService:
     return DepositService(session_factory)
 
 
-def get_pickup_service(session_factory: SessionFactoryDep) -> PickupService:
-    return PickupService(session_factory)
+_tracker: LockoutTracker | None = None
+
+
+def get_lockout_tracker() -> LockoutTracker:
+    """The process-wide pickup lockout tracker, built on first use."""
+    global _tracker
+    if _tracker is None:
+        _tracker = LockoutTracker(load_lockout_policy())
+        _tracker.start()
+    return _tracker
+
+
+LockoutTrackerDep = Annotated[LockoutTracker, Depends(get_lockout_tracker)]
+
+
+def get_pickup_service(
+    session_factory: SessionFactoryDep, lockout: LockoutTrackerDep
+) -> PickupService:
+    return PickupService(session_factory, lockout)
 
 
 DepositServiceDep = Annotated[DepositService, Depends(get_deposit_service)]
@@ -128,7 +153,30 @@ def pickup_parcel(locker_id: int, body: PickupRequest, service: PickupServiceDep
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except Expired as exc:
         raise HTTPException(status.HTTP_410_GONE, str(exc)) from exc
+    except LockedOut as exc:
+        minutes, seconds = divmod(exc.retry_after_seconds, 60)
+        if minutes and seconds:
+            human = f"{minutes}m {seconds}s"
+        elif minutes:
+            human = f"{minutes}m"
+        else:
+            human = f"{seconds}s"
+        raise HTTPException(
+            status.HTTP_423_LOCKED,
+            f"locker {locker_id} is locked out, try again in {human}",
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
     return PickupOut(late_fee_cents=fee)
+
+
+@app.post(
+    "/lockers/{locker_id}/lockout/clear",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_courier)],
+)
+def clear_lockout(locker_id: int, lockout: LockoutTrackerDep) -> None:
+    """Let a courier clear a pickup lockout early, for example after verifying the recipient."""
+    lockout.clear(locker_id)
 
 
 @app.get(

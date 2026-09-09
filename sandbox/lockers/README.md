@@ -25,6 +25,7 @@ a base for a different set of practice exercises than `app/` and
 | `service.py` | `DepositService` (picks a compartment, generates a code, stores the parcel) and `PickupService` (validates the code, prices the late fee, frees the compartment). |
 | `api.py` | FastAPI app. `X-Courier-Key` auth for deposits and the compartment summary; pickup is public. |
 | `sweeper.py` | `sweep`, a job that warns recipients of parcels expiring soon and hard-deletes the ones that expired. |
+| `lockout.py` | `LockoutTracker`, an in-process per-locker failed-pickup-code counter with a background thread that expires lockouts and prunes idle counters. |
 | `tests/` | pytest suite for all of the above. In-memory SQLite with `StaticPool`. |
 
 ## Conventions
@@ -63,6 +64,10 @@ These conventions are deliberately different from both `app/` and
 | --- | --- | --- |
 | `LOCKERS_DATABASE_URL` | `sqlite://` (in memory) | SQLAlchemy URL |
 | `LOCKERS_COURIER_KEYS` | empty | comma-separated courier API keys |
+| `LOCKERS_LOCKOUT_MAX_ATTEMPTS` | `5` | wrong codes allowed for one locker in the window before it locks out |
+| `LOCKERS_LOCKOUT_WINDOW_SECONDS` | `300` | rolling window the wrong-code count is measured over |
+| `LOCKERS_LOCKOUT_MINUTES` | `15` | how long a locker stays locked out once it trips |
+| `LOCKERS_LOCKOUT_SWEEP_SECONDS` | `30` | how often the background thread expires lockouts and prunes idle counters |
 
 ## Running
 
